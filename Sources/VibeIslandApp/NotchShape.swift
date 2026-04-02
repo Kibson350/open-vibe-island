@@ -14,7 +14,7 @@ struct NotchShape: Shape {
 
     func path(in rect: CGRect) -> Path {
         let topR = min(topCornerRadius, rect.width / 4, rect.height / 4)
-        let botR = min(bottomCornerRadius, rect.width / 4, rect.height / 4)
+        let botR = min(bottomCornerRadius, rect.width / 4, rect.height / 2)
 
         var path = Path()
 
@@ -64,7 +64,7 @@ struct NotchShape: Shape {
 
 extension NotchShape {
     static let closedTopRadius: CGFloat = 6
-    static let closedBottomRadius: CGFloat = 16
+    static let closedBottomRadius: CGFloat = 20
     static let openedTopRadius: CGFloat = 22
     static let openedBottomRadius: CGFloat = 36
 
