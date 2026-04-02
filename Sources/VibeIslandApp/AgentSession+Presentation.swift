@@ -15,8 +15,12 @@ enum IslandSessionPresence: Equatable {
 }
 
 extension AgentSession {
-    private static let collapsedDetailAgeThreshold: TimeInterval = 2 * 60 * 60
-    private static let islandActivityThreshold: TimeInterval = 15 * 60
+    private static let collapsedDetailAgeThreshold: TimeInterval = 30 * 60
+    private static let islandActivityThreshold: TimeInterval = 30 * 60
+
+    var islandActivityDate: Date {
+        updatedAt
+    }
 
     var spotlightPrimaryText: String {
         if let request = permissionRequest {
@@ -208,11 +212,19 @@ extension AgentSession {
     }
 
     var spotlightShowsDetailLines: Bool {
+        spotlightShowsDetailLines(at: .now)
+    }
+
+    func spotlightShowsDetailLines(at referenceDate: Date) -> Bool {
         if phase == .running || phase.requiresAttention {
             return true
         }
 
-        if Date.now.timeIntervalSince(updatedAt) >= Self.collapsedDetailAgeThreshold {
+        if attachmentState == .attached {
+            return true
+        }
+
+        if referenceDate.timeIntervalSince(islandActivityDate) >= Self.collapsedDetailAgeThreshold {
             return false
         }
 
@@ -220,7 +232,7 @@ extension AgentSession {
     }
 
     var spotlightAgeBadge: String {
-        let age = max(0, Int(Date.now.timeIntervalSince(updatedAt)))
+        let age = max(0, Int(Date.now.timeIntervalSince(islandActivityDate)))
 
         if age < 60 {
             return "<1m"
@@ -246,7 +258,7 @@ extension AgentSession {
             return .active
         }
 
-        if referenceDate.timeIntervalSince(updatedAt) <= Self.islandActivityThreshold {
+        if referenceDate.timeIntervalSince(islandActivityDate) <= Self.islandActivityThreshold {
             return .active
         }
 

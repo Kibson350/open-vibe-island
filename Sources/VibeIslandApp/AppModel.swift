@@ -881,11 +881,11 @@ final class AppModel {
             let rhsScore = displayPriority(for: rhs, now: now)
 
             if lhsScore == rhsScore {
-                if lhs.updatedAt == rhs.updatedAt {
+                if lhs.islandActivityDate == rhs.islandActivityDate {
                     return lhs.title.localizedStandardCompare(rhs.title) == .orderedAscending
                 }
 
-                return lhs.updatedAt > rhs.updatedAt
+                return lhs.islandActivityDate > rhs.islandActivityDate
             }
 
             return lhsScore > rhsScore
@@ -932,7 +932,7 @@ final class AppModel {
             score += 600
         }
 
-        let age = now.timeIntervalSince(session.updatedAt)
+        let age = now.timeIntervalSince(session.islandActivityDate)
         switch age {
         case ..<120:
             score += 500

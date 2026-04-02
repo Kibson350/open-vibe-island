@@ -29,6 +29,35 @@ struct AgentSessionPresentationTests {
     }
 
     @Test
+    func attachedCompletedSessionKeepsDetailLinesEvenWhenOld() {
+        let referenceDate = Date(timeIntervalSince1970: 10_000)
+        let session = AgentSession(
+            id: "session-1",
+            title: "Codex · worktree",
+            tool: .codex,
+            origin: .live,
+            attachmentState: .attached,
+            phase: .completed,
+            summary: "Ready",
+            updatedAt: referenceDate.addingTimeInterval(-7_200),
+            jumpTarget: JumpTarget(
+                terminalApp: "Ghostty",
+                workspaceName: "worktree",
+                paneTitle: "codex ~/tmp/worktree",
+                workingDirectory: "/tmp/worktree",
+                terminalSessionID: "ghostty-1"
+            ),
+            codexMetadata: CodexSessionMetadata(
+                initialUserPrompt: "Initial prompt",
+                lastUserPrompt: "Follow-up prompt",
+                lastAssistantMessage: "Last assistant message"
+            )
+        )
+
+        #expect(session.spotlightShowsDetailLines(at: referenceDate))
+    }
+
+    @Test
     func detachedCompletedSessionCanStillCollapseToInactive() {
         let referenceDate = Date(timeIntervalSince1970: 10_000)
         let session = AgentSession(
@@ -39,10 +68,33 @@ struct AgentSessionPresentationTests {
             attachmentState: .detached,
             phase: .completed,
             summary: "Ready",
-            updatedAt: referenceDate.addingTimeInterval(-3_600)
+            updatedAt: referenceDate.addingTimeInterval(-1_801)
         )
 
         #expect(session.islandPresence(at: referenceDate) == .inactive)
+        #expect(session.spotlightShowsDetailLines(at: referenceDate) == false)
+    }
+
+    @Test
+    func detachedCompletedSessionStaysActiveWithinThirtyMinutes() {
+        let referenceDate = Date(timeIntervalSince1970: 10_000)
+        let session = AgentSession(
+            id: "session-1",
+            title: "Codex · worktree",
+            tool: .codex,
+            origin: .live,
+            attachmentState: .detached,
+            phase: .completed,
+            summary: "Ready",
+            updatedAt: referenceDate.addingTimeInterval(-1_799),
+            codexMetadata: CodexSessionMetadata(
+                lastUserPrompt: "Follow-up prompt",
+                lastAssistantMessage: "Last assistant message"
+            )
+        )
+
+        #expect(session.islandPresence(at: referenceDate) == .active)
+        #expect(session.spotlightShowsDetailLines(at: referenceDate))
     }
 
     @Test
