@@ -478,17 +478,17 @@ private struct IslandSessionRow: View {
                         HStack(alignment: .top, spacing: 12) {
                             Text(session.spotlightHeadlineText)
                                 .font(.system(size: 14, weight: .semibold))
-                                .foregroundStyle(.white)
+                                .foregroundStyle(headlineColor(for: presence))
                                 .lineLimit(1)
 
                             Spacer(minLength: 8)
 
                             HStack(spacing: 6) {
-                                compactBadge(session.tool.displayName)
+                                compactBadge(session.tool.displayName, presence: presence)
                                 if let terminalBadge = session.spotlightTerminalBadge {
-                                    compactBadge(terminalBadge)
+                                    compactBadge(terminalBadge, presence: presence)
                                 }
-                                compactBadge(session.spotlightAgeBadge)
+                                compactBadge(session.spotlightAgeBadge, presence: presence)
                             }
                         }
 
@@ -577,13 +577,24 @@ private struct IslandSessionRow: View {
         onJump()
     }
 
-    private func compactBadge(_ title: String) -> some View {
+    private func compactBadge(
+        _ title: String,
+        presence: IslandSessionPresence
+    ) -> some View {
         Text(title)
             .font(.system(size: 9, weight: .semibold))
-            .foregroundStyle(.white.opacity(0.56))
+            .foregroundStyle(badgeTextColor(for: presence))
             .padding(.horizontal, 7)
             .padding(.vertical, 3.5)
             .background(Color(red: 0.14, green: 0.14, blue: 0.15), in: Capsule())
+    }
+
+    private func headlineColor(for presence: IslandSessionPresence) -> Color {
+        presence == .inactive ? .white.opacity(0.78) : .white
+    }
+
+    private func badgeTextColor(for presence: IslandSessionPresence) -> Color {
+        presence == .inactive ? .white.opacity(0.42) : .white.opacity(0.56)
     }
 
     private func statusTint(for presence: IslandSessionPresence) -> Color {
