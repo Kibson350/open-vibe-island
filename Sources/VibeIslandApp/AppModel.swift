@@ -6,10 +6,18 @@ import VibeIslandCore
 @MainActor
 @Observable
 final class AppModel {
+    struct AcceptanceStep: Identifiable {
+        let id: String
+        let title: String
+        let detail: String
+        let isComplete: Bool
+    }
+
     var state = SessionState()
     var selectedSessionID: String?
     var isOverlayVisible = false
     var isCodexSetupBusy = false
+    var isBridgeReady = false
     var lastActionMessage = "Waiting for Codex hook events..."
     var codexHookStatus: CodexHookInstallationStatus?
     var hooksBinaryURL: URL?
@@ -19,6 +27,9 @@ final class AppModel {
 
     @ObservationIgnored
     private let overlayPanelController = OverlayPanelController()
+
+    @ObservationIgnored
+    private weak var controlCenterWindowController: ControlCenterWindowController?
 
     @ObservationIgnored
     private let bridgeServer = DemoBridgeServer()
@@ -73,6 +84,89 @@ final class AppModel {
         state.session(id: selectedSessionID) ?? state.activeActionableSession ?? state.sessions.first
     }
 
+    var hasAnySession: Bool {
+        !sessions.isEmpty
+    }
+
+    var hasCodexSession: Bool {
+        sessions.contains(where: { $0.tool == .codex })
+    }
+
+    var hasJumpableSession: Bool {
+        sessions.contains(where: { $0.jumpTarget != nil })
+    }
+
+    var acceptanceSteps: [AcceptanceStep] {
+        [
+            AcceptanceStep(
+                id: "bridge",
+                title: "Bridge ready",
+                detail: "The app must own the local socket and register as a bridge observer.",
+                isComplete: isBridgeReady
+            ),
+            AcceptanceStep(
+                id: "hooks",
+                title: "Codex hooks installed",
+                detail: "Managed `hooks.json` entries should be present in `~/.codex`.",
+                isComplete: codexHooksInstalled
+            ),
+            AcceptanceStep(
+                id: "overlay",
+                title: "Island visible",
+                detail: "Show the overlay at least once so the notch/top-bar surface is visible.",
+                isComplete: isOverlayVisible
+            ),
+            AcceptanceStep(
+                id: "session",
+                title: "A Codex session is observed",
+                detail: "Start Codex in Terminal and wait for the first session row to appear.",
+                isComplete: hasCodexSession
+            ),
+            AcceptanceStep(
+                id: "jump",
+                title: "Jump target captured",
+                detail: "At least one session should include terminal jump metadata.",
+                isComplete: hasJumpableSession
+            ),
+        ]
+    }
+
+    var acceptanceCompletedCount: Int {
+        acceptanceSteps.filter(\.isComplete).count
+    }
+
+    var isReadyForFirstAcceptance: Bool {
+        acceptanceSteps.prefix(3).allSatisfy(\.isComplete)
+    }
+
+    var hasPassedAcceptanceFlow: Bool {
+        acceptanceSteps.allSatisfy(\.isComplete)
+    }
+
+    var acceptanceStatusTitle: String {
+        if hasPassedAcceptanceFlow {
+            return "v0.1 acceptance passed"
+        }
+
+        if isReadyForFirstAcceptance {
+            return "Ready for v0.1 acceptance"
+        }
+
+        return "v0.1 acceptance not ready"
+    }
+
+    var acceptanceStatusSummary: String {
+        if hasPassedAcceptanceFlow {
+            return "The current build has completed the first-run checklist end to end."
+        }
+
+        if isReadyForFirstAcceptance {
+            return "You can start your first acceptance run now. Launch Codex in Terminal and walk the last two steps."
+        }
+
+        return "Finish the setup steps in the left column, then start Codex from Terminal."
+    }
+
     func startIfNeeded() {
         guard bridgeTask == nil else {
             return
@@ -92,8 +186,10 @@ final class AppModel {
 
                 do {
                     try await self.bridgeClient.send(.registerClient(role: .observer))
+                    self.isBridgeReady = true
                     self.lastActionMessage = "Bridge ready. Waiting for Codex hook events."
                 } catch {
+                    self.isBridgeReady = false
                     self.lastActionMessage = "Failed to register bridge observer: \(error.localizedDescription)"
                 }
             }
@@ -116,10 +212,12 @@ final class AppModel {
                         self.lastActionMessage = self.describe(event)
                     }
                 } catch {
+                    self.isBridgeReady = false
                     self.lastActionMessage = "Bridge disconnected: \(error.localizedDescription)"
                 }
             }
         } catch {
+            isBridgeReady = false
             lastActionMessage = "Failed to start local bridge: \(error.localizedDescription)"
         }
     }
@@ -140,6 +238,14 @@ final class AppModel {
             overlayPanelController.show(model: self)
             isOverlayVisible = true
         }
+    }
+
+    func attach(controlCenterWindowController: ControlCenterWindowController) {
+        self.controlCenterWindowController = controlCenterWindowController
+    }
+
+    func showControlCenter() {
+        controlCenterWindowController?.show()
     }
 
     func approveFocusedPermission(_ approved: Bool) {
@@ -211,6 +317,14 @@ final class AppModel {
         updateCodexHooks(userMessage: "Removing Codex hooks.") { manager in
             try manager.uninstall()
         }
+    }
+
+    func startAcceptanceDemo() {
+        if !isOverlayVisible {
+            toggleOverlay()
+        }
+        resetDemo()
+        lastActionMessage = "Acceptance demo started. The overlay is visible and the demo timeline has been reset."
     }
 
     private func send(_ command: BridgeCommand, userMessage: String) {

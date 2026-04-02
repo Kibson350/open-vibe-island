@@ -10,7 +10,7 @@ struct ControlCenterView: View {
             detailColumn
         }
         .padding(24)
-        .frame(minWidth: 940, minHeight: 580)
+        .frame(width: 980, height: 640)
         .background(backgroundGradient)
     }
 
@@ -41,6 +41,7 @@ struct ControlCenterView: View {
                 .buttonStyle(.bordered)
             }
 
+            acceptanceCard
             setupCard
 
             VStack(alignment: .leading, spacing: 12) {
@@ -114,6 +115,74 @@ struct ControlCenterView: View {
                 }
                 .buttonStyle(.bordered)
                 .disabled(model.isCodexSetupBusy || !model.codexHooksInstalled)
+            }
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                .strokeBorder(.white.opacity(0.08))
+        )
+    }
+
+    private var acceptanceCard: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(alignment: .top) {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("v0.1 Acceptance")
+                        .font(.headline)
+                    Text(model.acceptanceStatusTitle)
+                        .font(.subheadline.weight(.medium))
+                    Text(model.acceptanceStatusSummary)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
+                Spacer(minLength: 12)
+
+                Text("\(model.acceptanceCompletedCount)/\(model.acceptanceSteps.count)")
+                    .font(.system(size: 18, weight: .semibold, design: .rounded))
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 6)
+                    .background(.ultraThinMaterial, in: Capsule())
+            }
+
+            VStack(alignment: .leading, spacing: 10) {
+                ForEach(model.acceptanceSteps) { step in
+                    HStack(alignment: .top, spacing: 10) {
+                        Image(systemName: step.isComplete ? "checkmark.circle.fill" : "circle")
+                            .foregroundStyle(step.isComplete ? Color.mint : Color.secondary)
+                            .padding(.top, 2)
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(step.title)
+                                .font(.subheadline.weight(.medium))
+                            Text(step.detail)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+            }
+
+            HStack(spacing: 10) {
+                Button("Refresh") {
+                    model.refreshCodexHookStatus()
+                }
+                .buttonStyle(.bordered)
+
+                Button("Run Demo Acceptance") {
+                    model.startAcceptanceDemo()
+                }
+                .buttonStyle(.borderedProminent)
+
+                Button("Open Overlay") {
+                    if !model.isOverlayVisible {
+                        model.toggleOverlay()
+                    }
+                }
+                .buttonStyle(.bordered)
+                .disabled(model.isOverlayVisible)
             }
         }
         .padding(16)

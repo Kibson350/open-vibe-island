@@ -108,6 +108,23 @@ struct MenuBarContentView: View {
 
             Divider()
 
+            Button("Open Control Center") {
+                model.showControlCenter()
+            }
+
+            Text(model.acceptanceStatusTitle)
+                .font(.subheadline.weight(.semibold))
+            Text(model.acceptanceStatusSummary)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            Button("Run Demo Acceptance") {
+                model.startAcceptanceDemo()
+            }
+
+            Divider()
+
             Button(model.isOverlayVisible ? "Hide Island Overlay" : "Show Island Overlay") {
                 model.toggleOverlay()
             }
