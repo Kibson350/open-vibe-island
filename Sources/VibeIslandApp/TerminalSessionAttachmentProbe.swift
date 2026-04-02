@@ -3,15 +3,45 @@ import Foundation
 import VibeIslandCore
 
 struct TerminalSessionAttachmentProbe {
-    private struct GhosttyTerminalSnapshot {
+    struct GhosttyTerminalSnapshot {
         var sessionID: String
         var workingDirectory: String
         var title: String
     }
 
-    private struct TerminalTabSnapshot {
+    struct TerminalTabSnapshot {
         var tty: String
         var customTitle: String
+    }
+
+    enum SnapshotAvailability<Snapshot> {
+        case unavailable(appIsRunning: Bool)
+        case available([Snapshot], appIsRunning: Bool)
+
+        var appIsRunning: Bool {
+            switch self {
+            case let .unavailable(appIsRunning):
+                appIsRunning
+            case let .available(_, appIsRunning):
+                appIsRunning
+            }
+        }
+
+        var hasExplicitSnapshotData: Bool {
+            if case .available = self {
+                return true
+            }
+
+            return false
+        }
+
+        var snapshots: [Snapshot]? {
+            if case let .available(snapshots, _) = self {
+                return snapshots
+            }
+
+            return nil
+        }
     }
 
     private static let liveGraceWindow: TimeInterval = 120
@@ -20,100 +50,184 @@ struct TerminalSessionAttachmentProbe {
     private static let recordSeparator = "\u{1e}"
 
     func attachmentStates(for sessions: [AgentSession], now: Date = .now) -> [String: SessionAttachmentState] {
+        attachmentStates(
+            for: sessions,
+            ghosttyAvailability: ghosttySnapshotAvailability(),
+            terminalAvailability: terminalSnapshotAvailability(),
+            now: now
+        )
+    }
+
+    func attachmentStates(
+        for sessions: [AgentSession],
+        ghosttyAvailability: SnapshotAvailability<GhosttyTerminalSnapshot>,
+        terminalAvailability: SnapshotAvailability<TerminalTabSnapshot>,
+        now: Date = .now
+    ) -> [String: SessionAttachmentState] {
         guard !sessions.isEmpty else {
             return [:]
         }
 
         let ghosttySessions = sessions.filter { normalizedTerminalName(for: $0.jumpTarget?.terminalApp) == "ghostty" }
         let terminalSessions = sessions.filter { normalizedTerminalName(for: $0.jumpTarget?.terminalApp) == "terminal" }
-
-        let ghosttySnapshots = (try? ghosttySnapshots()) ?? []
-        let terminalSnapshots = (try? terminalSnapshots()) ?? []
-        let ghosttyRunning = isRunning(bundleIdentifier: "com.mitchellh.ghostty")
-        let terminalRunning = isRunning(bundleIdentifier: "com.apple.Terminal")
+        let attachedGhosttySessionIDs = attachedGhosttySessionIDs(
+            for: ghosttySessions,
+            availability: ghosttyAvailability
+        )
+        let attachedTerminalSessionIDs = attachedTerminalSessionIDs(
+            for: terminalSessions,
+            availability: terminalAvailability
+        )
 
         var updates: [String: SessionAttachmentState] = [:]
 
         for session in sessions {
             if ghosttySessions.contains(where: { $0.id == session.id }) {
-                updates[session.id] = resolveGhosttyAttachmentState(
+                updates[session.id] = resolveAttachmentState(
                     for: session,
-                    snapshots: ghosttySnapshots,
-                    appIsRunning: ghosttyRunning,
+                    isMatched: attachedGhosttySessionIDs.contains(session.id),
+                    availability: ghosttyAvailability,
                     now: now
                 )
                 continue
             }
 
             if terminalSessions.contains(where: { $0.id == session.id }) {
-                updates[session.id] = resolveTerminalAttachmentState(
+                updates[session.id] = resolveAttachmentState(
                     for: session,
-                    snapshots: terminalSnapshots,
-                    appIsRunning: terminalRunning,
+                    isMatched: attachedTerminalSessionIDs.contains(session.id),
+                    availability: terminalAvailability,
                     now: now
                 )
                 continue
             }
 
-            updates[session.id] = fallbackAttachmentState(for: session, appIsRunning: nil, now: now)
+            updates[session.id] = fallbackAttachmentState(
+                for: session,
+                appIsRunning: nil,
+                allowRecentAttachmentGrace: true,
+                now: now
+            )
         }
 
         return updates
     }
 
-    private func resolveGhosttyAttachmentState(
+    private func resolveAttachmentState<Snapshot>(
         for session: AgentSession,
-        snapshots: [GhosttyTerminalSnapshot],
-        appIsRunning: Bool,
+        isMatched: Bool,
+        availability: SnapshotAvailability<Snapshot>,
         now: Date
     ) -> SessionAttachmentState {
-        guard let jumpTarget = session.jumpTarget else {
-            return fallbackAttachmentState(for: session, appIsRunning: appIsRunning, now: now)
-        }
-
-        if snapshots.contains(where: { snapshot in
-            if let sessionID = jumpTarget.terminalSessionID, !sessionID.isEmpty, snapshot.sessionID == sessionID {
-                return true
-            }
-
-            if let workingDirectory = jumpTarget.workingDirectory, !workingDirectory.isEmpty, snapshot.workingDirectory == workingDirectory {
-                return true
-            }
-
-            return !jumpTarget.paneTitle.isEmpty && snapshot.title.contains(jumpTarget.paneTitle)
-        }) {
+        if isMatched {
             return .attached
         }
 
-        return fallbackAttachmentState(for: session, appIsRunning: appIsRunning, now: now)
+        return fallbackAttachmentState(
+            for: session,
+            appIsRunning: availability.appIsRunning,
+            allowRecentAttachmentGrace: !availability.hasExplicitSnapshotData,
+            now: now
+        )
     }
 
-    private func resolveTerminalAttachmentState(
-        for session: AgentSession,
-        snapshots: [TerminalTabSnapshot],
-        appIsRunning: Bool,
-        now: Date
-    ) -> SessionAttachmentState {
-        guard let jumpTarget = session.jumpTarget else {
-            return fallbackAttachmentState(for: session, appIsRunning: appIsRunning, now: now)
+    private func attachedGhosttySessionIDs(
+        for sessions: [AgentSession],
+        availability: SnapshotAvailability<GhosttyTerminalSnapshot>
+    ) -> Set<String> {
+        guard let snapshots = availability.snapshots else {
+            return []
         }
 
-        if snapshots.contains(where: { snapshot in
-            if let tty = jumpTarget.terminalTTY, !tty.isEmpty, snapshot.tty == tty {
-                return true
+        return Set(snapshots.compactMap { snapshot in
+            preferredSession(
+                from: sessions.filter { ghosttySnapshot(snapshot, matches: $0) }
+            )?.id
+        })
+    }
+
+    private func attachedTerminalSessionIDs(
+        for sessions: [AgentSession],
+        availability: SnapshotAvailability<TerminalTabSnapshot>
+    ) -> Set<String> {
+        guard let snapshots = availability.snapshots else {
+            return []
+        }
+
+        return Set(snapshots.compactMap { snapshot in
+            preferredSession(
+                from: sessions.filter { terminalSnapshot(snapshot, matches: $0) }
+            )?.id
+        })
+    }
+
+    private func ghosttySnapshot(_ snapshot: GhosttyTerminalSnapshot, matches session: AgentSession) -> Bool {
+        guard let jumpTarget = session.jumpTarget else {
+            return false
+        }
+
+        if let sessionID = nonEmptyValue(jumpTarget.terminalSessionID) {
+            return snapshot.sessionID == sessionID
+        }
+
+        if let workingDirectory = nonEmptyValue(jumpTarget.workingDirectory) {
+            return snapshot.workingDirectory == workingDirectory
+        }
+
+        guard let paneTitle = nonEmptyValue(jumpTarget.paneTitle) else {
+            return false
+        }
+
+        return snapshot.title.contains(paneTitle)
+    }
+
+    private func terminalSnapshot(_ snapshot: TerminalTabSnapshot, matches session: AgentSession) -> Bool {
+        guard let jumpTarget = session.jumpTarget else {
+            return false
+        }
+
+        if let tty = nonEmptyValue(jumpTarget.terminalTTY) {
+            return snapshot.tty == tty
+        }
+
+        guard let paneTitle = nonEmptyValue(jumpTarget.paneTitle) else {
+            return false
+        }
+
+        return snapshot.customTitle.contains(paneTitle)
+    }
+
+    private func preferredSession(from sessions: [AgentSession]) -> AgentSession? {
+        sessions.sorted { lhs, rhs in
+            if lhs.updatedAt != rhs.updatedAt {
+                return lhs.updatedAt > rhs.updatedAt
             }
 
-            return !jumpTarget.paneTitle.isEmpty && snapshot.customTitle.contains(jumpTarget.paneTitle)
-        }) {
-            return .attached
-        }
+            if phasePriority(lhs.phase) != phasePriority(rhs.phase) {
+                return phasePriority(lhs.phase) > phasePriority(rhs.phase)
+            }
 
-        return fallbackAttachmentState(for: session, appIsRunning: appIsRunning, now: now)
+            return lhs.id.localizedStandardCompare(rhs.id) == .orderedAscending
+        }.first
+    }
+
+    private func phasePriority(_ phase: SessionPhase) -> Int {
+        switch phase {
+        case .waitingForApproval:
+            4
+        case .waitingForAnswer:
+            3
+        case .running:
+            2
+        case .completed:
+            1
+        }
     }
 
     private func fallbackAttachmentState(
         for session: AgentSession,
         appIsRunning: Bool?,
+        allowRecentAttachmentGrace: Bool,
         now: Date
     ) -> SessionAttachmentState {
         let age = now.timeIntervalSince(session.updatedAt)
@@ -122,12 +236,14 @@ struct TerminalSessionAttachmentProbe {
             return .attached
         }
 
-        if session.attachmentState == .attached && age <= Self.liveGraceWindow {
-            return .attached
-        }
+        if allowRecentAttachmentGrace {
+            if session.attachmentState == .attached && age <= Self.liveGraceWindow {
+                return .attached
+            }
 
-        if session.codexMetadata?.currentTool?.isEmpty == false && age <= Self.liveGraceWindow {
-            return .attached
+            if session.codexMetadata?.currentTool?.isEmpty == false && age <= Self.liveGraceWindow {
+                return .attached
+            }
         }
 
         if let appIsRunning, appIsRunning == false {
@@ -137,11 +253,42 @@ struct TerminalSessionAttachmentProbe {
         return age <= Self.staleGraceWindow ? .stale : .detached
     }
 
-    private func ghosttySnapshots() throws -> [GhosttyTerminalSnapshot] {
-        guard isRunning(bundleIdentifier: "com.mitchellh.ghostty") else {
-            return []
+    private func ghosttySnapshotAvailability() -> SnapshotAvailability<GhosttyTerminalSnapshot> {
+        let appIsRunning = isRunning(bundleIdentifier: "com.mitchellh.ghostty")
+        guard appIsRunning else {
+            return .available([], appIsRunning: false)
         }
 
+        do {
+            return .available(try ghosttySnapshots(), appIsRunning: true)
+        } catch {
+            return .unavailable(appIsRunning: true)
+        }
+    }
+
+    private func terminalSnapshotAvailability() -> SnapshotAvailability<TerminalTabSnapshot> {
+        let appIsRunning = isRunning(bundleIdentifier: "com.apple.Terminal")
+        guard appIsRunning else {
+            return .available([], appIsRunning: false)
+        }
+
+        do {
+            return .available(try terminalSnapshots(), appIsRunning: true)
+        } catch {
+            return .unavailable(appIsRunning: true)
+        }
+    }
+
+    private func nonEmptyValue(_ value: String?) -> String? {
+        guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !trimmed.isEmpty else {
+            return nil
+        }
+
+        return trimmed
+    }
+
+    private func ghosttySnapshots() throws -> [GhosttyTerminalSnapshot] {
         let script = """
         set fieldSeparator to ASCII character 31
         set recordSeparator to ASCII character 30
@@ -189,10 +336,6 @@ struct TerminalSessionAttachmentProbe {
     }
 
     private func terminalSnapshots() throws -> [TerminalTabSnapshot] {
-        guard isRunning(bundleIdentifier: "com.apple.Terminal") else {
-            return []
-        }
-
         let script = """
         set fieldSeparator to ASCII character 31
         set recordSeparator to ASCII character 30

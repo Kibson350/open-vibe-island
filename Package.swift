@@ -45,5 +45,9 @@ let package = Package(
             name: "VibeIslandCoreTests",
             dependencies: ["VibeIslandCore"]
         ),
+        .testTarget(
+            name: "VibeIslandAppTests",
+            dependencies: ["VibeIslandApp", "VibeIslandCore"]
+        ),
     ]
 )
