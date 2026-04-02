@@ -10,6 +10,8 @@ private let popAnimation = Animation.spring(response: 0.3, dampingFraction: 0.5)
 // MARK: - Main island view
 
 struct IslandPanelView: View {
+    private static let maxVisibleSessionRows = 6
+
     var model: AppModel
 
     @Namespace private var notchNamespace
@@ -270,9 +272,11 @@ struct IslandPanelView: View {
     }
 
     private var sessionList: some View {
-        ScrollView {
-            LazyVStack(spacing: 4) {
-                ForEach(displayedSessions) { session in
+        TimelineView(.periodic(from: .now, by: 30)) { context in
+            let presentation = sessionListPresentation(at: context.date)
+
+            VStack(spacing: 4) {
+                ForEach(presentation.visibleSessions) { session in
                     IslandSessionRow(
                         session: session,
                         isHighlighted: session.id == hoveredSessionID,
@@ -286,14 +290,41 @@ struct IslandPanelView: View {
                         onAnswer: { model.answerQuestion(for: session.id, answer: $0) }
                     )
                 }
+
+                if presentation.hiddenSessionCount > 0 {
+                    HiddenSessionsRow(hiddenSessionCount: presentation.hiddenSessionCount)
+                }
             }
             .padding(.vertical, 2)
         }
-        .scrollIndicators(.hidden)
     }
 
     private var displayedSessions: [AgentSession] {
         model.surfacedSessions
+    }
+
+    private func sessionListPresentation(at referenceDate: Date) -> SessionListPresentation {
+        let sessions = displayedSessions
+        guard sessions.count > Self.maxVisibleSessionRows else {
+            return SessionListPresentation(visibleSessions: sessions, hiddenSessionCount: 0)
+        }
+
+        let activeSessions = sessions.filter { $0.islandPresence(at: referenceDate) != .inactive }
+        let inactiveSessions = sessions.filter { $0.islandPresence(at: referenceDate) == .inactive }
+        let contentSlots = max(0, Self.maxVisibleSessionRows - 1)
+
+        var visibleSessions = Array(activeSessions.prefix(contentSlots))
+
+        if visibleSessions.count < contentSlots {
+            let remainingSlots = contentSlots - visibleSessions.count
+            visibleSessions.append(contentsOf: inactiveSessions.prefix(remainingSlots))
+        }
+
+        let hiddenSessionCount = max(0, sessions.count - visibleSessions.count)
+        return SessionListPresentation(
+            visibleSessions: visibleSessions,
+            hiddenSessionCount: hiddenSessionCount
+        )
     }
 
     // MARK: - Helpers
@@ -420,6 +451,11 @@ struct IslandPanelView: View {
 
         return formatter.string(from: interval)
     }
+}
+
+private struct SessionListPresentation {
+    let visibleSessions: [AgentSession]
+    let hiddenSessionCount: Int
 }
 
 // MARK: - Session row (opened state)
@@ -581,6 +617,35 @@ private struct IslandSessionRow: View {
         case .ready:
             presence == .inactive ? .white.opacity(0.46) : statusTint(for: presence)
         }
+    }
+}
+
+private struct HiddenSessionsRow: View {
+    let hiddenSessionCount: Int
+
+    var body: some View {
+        HStack(spacing: 14) {
+            Circle()
+                .fill(.white.opacity(0.28))
+                .frame(width: 9, height: 9)
+                .padding(.top, 2)
+
+            Text("\(hiddenSessionCount) session\(hiddenSessionCount == 1 ? "" : "s") hidden")
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(.white.opacity(0.42))
+
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 12)
+        .background(
+            RoundedRectangle(cornerRadius: 22, style: .continuous)
+                .fill(Color(red: 0.05, green: 0.05, blue: 0.06))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 22, style: .continuous)
+                .strokeBorder(.white.opacity(0.02))
+        )
     }
 }
 

@@ -229,11 +229,11 @@ extension AgentSession {
     }
 
     func islandPresence(at referenceDate: Date) -> IslandSessionPresence {
-        if phase == .running, spotlightCurrentToolLabel != nil {
+        if phase == .running {
             return .running
         }
 
-        if phase.requiresAttention || phase == .running {
+        if phase.requiresAttention {
             return .active
         }
 
