@@ -249,6 +249,8 @@ public enum CodexHookOutputEncoder {
             var line = data
             line.append(UInt8(ascii: "\n"))
             return line
+        case .claudeHookDirective:
+            return nil
         }
     }
 }

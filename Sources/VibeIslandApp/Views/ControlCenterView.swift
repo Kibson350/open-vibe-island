@@ -50,6 +50,39 @@ struct ControlCenterView: View {
                 }
 
                 usageDebugCard(
+                    title: "Claude Hooks",
+                    statusTitle: model.claudeHookStatusTitle,
+                    statusSummary: model.claudeHookStatusSummary,
+                    isActive: model.claudeHooksInstalled || model.claudeHookStatus?.hasClaudeIslandHooks == true,
+                    accentColor: model.claudeHooksInstalled ? .mint : (model.claudeHookStatus?.hasClaudeIslandHooks == true ? .orange : .blue)
+                ) {
+                    if let status = model.claudeHookStatus {
+                        metadataRow(title: "settings", value: status.settingsURL.path)
+                        metadataRow(title: "manifest", value: status.manifestURL.path)
+                        if status.hasClaudeIslandHooks {
+                            metadataRow(title: "notice", value: "claude-island hooks still present")
+                        }
+                    }
+                } actions: {
+                    HStack(spacing: 10) {
+                        Button("Refresh") {
+                            model.refreshClaudeHookStatus()
+                        }
+                        .buttonStyle(DebugActionButtonStyle(kind: .secondary))
+
+                        Button(model.claudeHooksInstalled ? "Remove Hooks" : "Install Hooks") {
+                            if model.claudeHooksInstalled {
+                                model.uninstallClaudeHooks()
+                            } else {
+                                model.installClaudeHooks()
+                            }
+                        }
+                        .buttonStyle(DebugActionButtonStyle(kind: .primary))
+                        .disabled(model.isClaudeHookSetupBusy || model.hooksBinaryURL == nil)
+                    }
+                }
+
+                usageDebugCard(
                     title: "Claude Usage",
                     statusTitle: model.claudeUsageStatusTitle,
                     statusSummary: model.claudeUsageStatusSummary,

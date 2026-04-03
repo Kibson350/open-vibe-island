@@ -87,7 +87,7 @@ struct SessionStateTests {
 
         state.resolvePermission(
             sessionID: "newer",
-            approved: true,
+            resolution: .allowOnce(),
             at: startedAt.addingTimeInterval(20)
         )
 
@@ -97,7 +97,7 @@ struct SessionStateTests {
 
         state.answerQuestion(
             sessionID: "older",
-            answer: "Production",
+            response: QuestionPromptResponse(answer: "Production"),
             at: startedAt.addingTimeInterval(25)
         )
 
@@ -302,7 +302,7 @@ struct SessionStateTests {
         #expect(startedEvent.isSessionStarted)
         #expect(permissionEvent.isPermissionRequested)
 
-        try await observer.send(.resolvePermission(sessionID: "codex-session-1", approved: false))
+        try await observer.send(.resolvePermission(sessionID: "codex-session-1", resolution: .deny()))
 
         let response = try await requestTask.value
         #expect(response == .codexHookDirective(.deny(reason: "Permission denied in Vibe Island.")))

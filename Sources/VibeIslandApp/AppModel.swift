@@ -39,10 +39,12 @@ final class AppModel {
     var islandSurface: IslandSurface = .sessionList
     var isOverlayVisible: Bool { notchStatus != .closed }
     var isCodexSetupBusy = false
+    var isClaudeHookSetupBusy = false
     var isClaudeUsageSetupBusy = false
     var isBridgeReady = false
-    var lastActionMessage = "Waiting for Codex hook events..."
+    var lastActionMessage = "Waiting for agent hook events..."
     var codexHookStatus: CodexHookInstallationStatus?
+    var claudeHookStatus: ClaudeHookInstallationStatus?
     var claudeStatusLineStatus: ClaudeStatusLineInstallationStatus?
     var claudeUsageSnapshot: ClaudeUsageSnapshot?
     var codexUsageSnapshot: CodexUsageSnapshot?
@@ -86,6 +88,9 @@ final class AppModel {
 
     @ObservationIgnored
     private let codexHookInstallationManager = CodexHookInstallationManager()
+
+    @ObservationIgnored
+    private let claudeHookInstallationManager = ClaudeHookInstallationManager()
 
     @ObservationIgnored
     private let claudeStatusLineInstallationManager = ClaudeStatusLineInstallationManager()
@@ -170,8 +175,47 @@ final class AppModel {
         codexHookStatus?.managedHooksPresent == true
     }
 
+    var claudeHooksInstalled: Bool {
+        claudeHookStatus?.managedHooksPresent == true
+    }
+
     var claudeUsageInstalled: Bool {
         claudeStatusLineStatus?.managedStatusLineInstalled == true
+    }
+
+    var claudeHookStatusTitle: String {
+        if claudeHooksInstalled {
+            return "Claude hooks installed"
+        }
+
+        if hooksBinaryURL == nil {
+            return "Hook binary not found"
+        }
+
+        return "Claude hooks not installed"
+    }
+
+    var claudeHookStatusSummary: String {
+        guard let status = claudeHookStatus else {
+            return "Reading ~/.claude/settings.json."
+        }
+
+        if claudeHooksInstalled {
+            if status.hasClaudeIslandHooks {
+                return "managed hooks present · claude-island hooks also detected"
+            }
+            return "managed hooks present"
+        }
+
+        if hooksBinaryURL == nil {
+            return "Build VibeIslandHooks before installing."
+        }
+
+        if status.hasClaudeIslandHooks {
+            return "claude-island hooks detected · managed hooks absent"
+        }
+
+        return "no managed Claude hooks"
     }
 
     var claudeUsageStatusTitle: String {
@@ -406,6 +450,7 @@ final class AppModel {
         startSessionAttachmentMonitoringIfNeeded()
         hooksBinaryURL = HooksBinaryLocator.locate()
         refreshCodexHookStatus()
+        refreshClaudeHookStatus()
         refreshClaudeUsageState()
         startClaudeUsageMonitoringIfNeeded()
         refreshCodexUsageState()
@@ -427,7 +472,7 @@ final class AppModel {
                 do {
                     try await self.bridgeClient.send(.registerClient(role: .observer))
                     self.isBridgeReady = true
-                    self.lastActionMessage = "Bridge ready. Waiting for Codex hook events."
+                    self.lastActionMessage = "Bridge ready. Waiting for Claude and Codex hook events."
                 } catch {
                     self.isBridgeReady = false
                     self.lastActionMessage = "Failed to register bridge observer: \(error.localizedDescription)"
@@ -625,7 +670,7 @@ final class AppModel {
         }
 
         send(
-            .resolvePermission(sessionID: session.id, approved: approved),
+            .resolvePermission(sessionID: session.id, resolution: permissionResolution(for: approved)),
             userMessage: approved
                 ? "Approving permission for \(session.title)."
                 : "Denying permission for \(session.title)."
@@ -638,7 +683,7 @@ final class AppModel {
         }
 
         send(
-            .answerQuestion(sessionID: session.id, answer: answer),
+            .answerQuestion(sessionID: session.id, response: QuestionPromptResponse(answer: answer)),
             userMessage: "Sending answer \"\(answer)\" for \(session.title)."
         )
     }
@@ -681,14 +726,14 @@ final class AppModel {
         dismissNotificationSurfaceIfPresent(for: sessionID)
 
         send(
-            .resolvePermission(sessionID: session.id, approved: approved),
+            .resolvePermission(sessionID: session.id, resolution: permissionResolution(for: approved)),
             userMessage: approved
                 ? "Approving permission for \(session.title)."
                 : "Denying permission for \(session.title)."
         )
     }
 
-    func answerQuestion(for sessionID: String, answer: String) {
+    func answerQuestion(for sessionID: String, answer: QuestionPromptResponse) {
         guard let session = state.session(id: sessionID) else {
             return
         }
@@ -696,8 +741,8 @@ final class AppModel {
         dismissNotificationSurfaceIfPresent(for: sessionID)
 
         send(
-            .answerQuestion(sessionID: session.id, answer: answer),
-            userMessage: "Sending answer \"\(answer)\" for \(session.title)."
+            .answerQuestion(sessionID: session.id, response: answer),
+            userMessage: "Sending answer for \(session.title)."
         )
     }
 
@@ -712,6 +757,21 @@ final class AppModel {
                 self.codexHookStatus = status
             } catch {
                 self.lastActionMessage = "Failed to read Codex hook status: \(error.localizedDescription)"
+            }
+        }
+    }
+
+    func refreshClaudeHookStatus() {
+        Task { [weak self] in
+            guard let self else {
+                return
+            }
+
+            do {
+                let status = try self.claudeHookInstallationManager.status(hooksBinaryURL: self.hooksBinaryURL)
+                self.claudeHookStatus = status
+            } catch {
+                self.lastActionMessage = "Failed to read Claude hook status: \(error.localizedDescription)"
             }
         }
     }
@@ -765,6 +825,23 @@ final class AppModel {
         }
     }
 
+    func installClaudeHooks() {
+        guard let hooksBinaryURL else {
+            lastActionMessage = "Could not find a local VibeIslandHooks binary. Build the package first."
+            return
+        }
+
+        updateClaudeHooks(userMessage: "Installing Claude hooks.") { manager in
+            try manager.install(hooksBinaryURL: hooksBinaryURL)
+        }
+    }
+
+    func uninstallClaudeHooks() {
+        updateClaudeHooks(userMessage: "Removing Claude hooks.") { manager in
+            try manager.uninstall()
+        }
+    }
+
     func installClaudeUsageBridge() {
         updateClaudeUsageBridge(userMessage: "Installing Claude usage bridge.") { manager in
             try manager.install()
@@ -793,6 +870,14 @@ final class AppModel {
         }
     }
 
+    private func permissionResolution(for approved: Bool) -> PermissionResolution {
+        if approved {
+            return .allowOnce()
+        }
+
+        return .deny(message: "Permission denied in Vibe Island.", interrupt: false)
+    }
+
     private func updateCodexHooks(
         userMessage: String,
         operation: @escaping (CodexHookInstallationManager) throws -> CodexHookInstallationStatus
@@ -819,6 +904,38 @@ final class AppModel {
                 }
             } catch {
                 self.lastActionMessage = "Codex hook update failed: \(error.localizedDescription)"
+            }
+        }
+    }
+
+    private func updateClaudeHooks(
+        userMessage: String,
+        operation: @escaping (ClaudeHookInstallationManager) throws -> ClaudeHookInstallationStatus
+    ) {
+        isClaudeHookSetupBusy = true
+        lastActionMessage = userMessage
+
+        Task { [weak self] in
+            guard let self else {
+                return
+            }
+
+            defer {
+                self.isClaudeHookSetupBusy = false
+            }
+
+            do {
+                let status = try operation(self.claudeHookInstallationManager)
+                self.claudeHookStatus = status
+                if status.managedHooksPresent {
+                    self.lastActionMessage = status.hasClaudeIslandHooks
+                        ? "Claude hooks are installed. claude-island hooks are also still present."
+                        : "Claude hooks are installed and ready."
+                } else {
+                    self.lastActionMessage = "Claude hooks are not installed."
+                }
+            } catch {
+                self.lastActionMessage = "Claude hook update failed: \(error.localizedDescription)"
             }
         }
     }
@@ -1117,7 +1234,7 @@ final class AppModel {
             score += 10_000
         }
 
-        if session.codexMetadata?.currentTool?.isEmpty == false {
+        if session.currentToolName?.isEmpty == false {
             score += 6_000
         }
 
@@ -1263,6 +1380,8 @@ final class AppModel {
             payload.sessionID
         case let .sessionMetadataUpdated(payload):
             payload.sessionID
+        case let .claudeSessionMetadataUpdated(payload):
+            payload.sessionID
         }
     }
 
@@ -1314,6 +1433,12 @@ final class AppModel {
             }
 
             return payload.codexMetadata.lastAssistantMessage ?? "Codex session metadata updated."
+        case let .claudeSessionMetadataUpdated(payload):
+            if let currentTool = payload.claudeMetadata.currentTool {
+                return "Claude is running \(currentTool)."
+            }
+
+            return payload.claudeMetadata.lastAssistantMessage ?? "Claude session metadata updated."
         }
     }
 

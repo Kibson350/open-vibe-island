@@ -390,7 +390,7 @@ struct TerminalSessionAttachmentProbe {
                 return .attached
             }
 
-            if session.codexMetadata?.currentTool?.isEmpty == false && age <= Self.liveGraceWindow {
+            if session.currentToolName?.isEmpty == false && age <= Self.liveGraceWindow {
                 return .attached
             }
         }

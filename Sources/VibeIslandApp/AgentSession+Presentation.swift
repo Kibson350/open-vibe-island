@@ -31,7 +31,7 @@ extension AgentSession {
             return prompt.title
         }
 
-        if let assistantMessage = codexMetadata?.lastAssistantMessage?.trimmedForSurface,
+        if let assistantMessage = lastAssistantMessageText?.trimmedForSurface,
            !assistantMessage.isEmpty {
             return assistantMessage
         }
@@ -44,7 +44,7 @@ extension AgentSession {
             return request.affectedPath.isEmpty ? nil : request.affectedPath
         }
 
-        if let currentTool = codexMetadata?.currentTool?.trimmedForSurface,
+        if let currentTool = currentToolName?.trimmedForSurface,
            !currentTool.isEmpty {
             return phase == .completed
                 ? summary
@@ -61,7 +61,7 @@ extension AgentSession {
     }
 
     var spotlightCurrentToolLabel: String? {
-        guard let currentTool = codexMetadata?.currentTool?.trimmedForSurface,
+        guard let currentTool = currentToolName?.trimmedForSurface,
               !currentTool.isEmpty else {
             return nil
         }
@@ -70,7 +70,7 @@ extension AgentSession {
     }
 
     var spotlightTrackingLabel: String? {
-        guard let transcriptPath = codexMetadata?.transcriptPath?.trimmedForSurface,
+        guard let transcriptPath = trackingTranscriptPath?.trimmedForSurface,
               !transcriptPath.isEmpty else {
             return nil
         }
@@ -132,7 +132,7 @@ extension AgentSession {
     }
 
     var spotlightHeadlinePromptText: String? {
-        let prompt = codexMetadata?.initialUserPrompt?.trimmedForSurface
+        let prompt = initialUserPromptText?.trimmedForSurface
         guard let prompt, !prompt.isEmpty else {
             return spotlightPromptText
         }
@@ -141,7 +141,7 @@ extension AgentSession {
     }
 
     var spotlightPromptText: String? {
-        let prompt = codexMetadata?.lastUserPrompt?.trimmedForSurface
+        let prompt = latestUserPromptText?.trimmedForSurface
         guard let prompt, !prompt.isEmpty else {
             return nil
         }
@@ -184,7 +184,7 @@ extension AgentSession {
         case .waitingForAnswer:
             return questionPrompt?.title.trimmedForSurface ?? "Answer needed"
         case .completed:
-            if let assistantMessage = codexMetadata?.lastAssistantMessage?.trimmedForSurface,
+            if let assistantMessage = lastAssistantMessageText?.trimmedForSurface,
                !assistantMessage.isEmpty {
                 return assistantMessage
             }
@@ -202,7 +202,7 @@ extension AgentSession {
         case .running:
             return .live
         case .completed:
-            if codexMetadata?.lastAssistantMessage?.trimmedForSurface.isEmpty == false {
+            if lastAssistantMessageText?.trimmedForSurface.isEmpty == false {
                 return .idle
             }
             return .ready
@@ -224,7 +224,7 @@ extension AgentSession {
             return false
         }
 
-        return spotlightPromptText != nil || codexMetadata?.lastAssistantMessage?.trimmedForSurface.isEmpty == false
+        return spotlightPromptText != nil || lastAssistantMessageText?.trimmedForSurface.isEmpty == false
     }
 
     var spotlightAgeBadge: String {
@@ -262,13 +262,13 @@ extension AgentSession {
     }
 
     private var spotlightRunningActivityText: String? {
-        guard let currentTool = codexMetadata?.currentTool?.trimmedForSurface,
+        guard let currentTool = currentToolName?.trimmedForSurface,
               !currentTool.isEmpty else {
             return nil
         }
 
         let label = currentToolDisplayName(for: currentTool)
-        guard let preview = codexMetadata?.currentCommandPreview?.trimmedForSurface,
+        guard let preview = currentCommandPreviewText?.trimmedForSurface,
               !preview.isEmpty else {
             return label
         }
@@ -280,6 +280,12 @@ extension AgentSession {
         switch toolName {
         case "exec_command":
             return "Bash"
+        case "Bash":
+            return "Bash"
+        case "AskUserQuestion":
+            return "Question"
+        case "ExitPlanMode":
+            return "Plan"
         case "apply_patch":
             return "Patch"
         case "write_stdin":

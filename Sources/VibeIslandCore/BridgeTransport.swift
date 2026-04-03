@@ -65,18 +65,20 @@ public enum BridgeClientRole: String, Codable, Sendable {
 public enum BridgeCommand: Equatable, Codable, Sendable {
     case registerClient(role: BridgeClientRole)
     case requestQuestion(sessionID: String, prompt: QuestionPrompt)
-    case resolvePermission(sessionID: String, approved: Bool)
-    case answerQuestion(sessionID: String, answer: String)
+    case resolvePermission(sessionID: String, resolution: PermissionResolution)
+    case answerQuestion(sessionID: String, response: QuestionPromptResponse)
     case processCodexHook(CodexHookPayload)
+    case processClaudeHook(ClaudeHookPayload)
 
     private enum CodingKeys: String, CodingKey {
         case type
         case role
         case sessionID
         case prompt
-        case approved
-        case answer
+        case resolution
+        case response
         case codexHook
+        case claudeHook
     }
 
     private enum CommandType: String, Codable {
@@ -85,6 +87,7 @@ public enum BridgeCommand: Equatable, Codable, Sendable {
         case resolvePermission
         case answerQuestion
         case processCodexHook
+        case processClaudeHook
     }
 
     public init(from decoder: any Decoder) throws {
@@ -102,15 +105,17 @@ public enum BridgeCommand: Equatable, Codable, Sendable {
         case .resolvePermission:
             self = .resolvePermission(
                 sessionID: try container.decode(String.self, forKey: .sessionID),
-                approved: try container.decode(Bool.self, forKey: .approved)
+                resolution: try container.decode(PermissionResolution.self, forKey: .resolution)
             )
         case .answerQuestion:
             self = .answerQuestion(
                 sessionID: try container.decode(String.self, forKey: .sessionID),
-                answer: try container.decode(String.self, forKey: .answer)
+                response: try container.decode(QuestionPromptResponse.self, forKey: .response)
             )
         case .processCodexHook:
             self = .processCodexHook(try container.decode(CodexHookPayload.self, forKey: .codexHook))
+        case .processClaudeHook:
+            self = .processClaudeHook(try container.decode(ClaudeHookPayload.self, forKey: .claudeHook))
         }
     }
 
@@ -125,17 +130,20 @@ public enum BridgeCommand: Equatable, Codable, Sendable {
             try container.encode(CommandType.requestQuestion, forKey: .type)
             try container.encode(sessionID, forKey: .sessionID)
             try container.encode(prompt, forKey: .prompt)
-        case let .resolvePermission(sessionID, approved):
+        case let .resolvePermission(sessionID, resolution):
             try container.encode(CommandType.resolvePermission, forKey: .type)
             try container.encode(sessionID, forKey: .sessionID)
-            try container.encode(approved, forKey: .approved)
-        case let .answerQuestion(sessionID, answer):
+            try container.encode(resolution, forKey: .resolution)
+        case let .answerQuestion(sessionID, response):
             try container.encode(CommandType.answerQuestion, forKey: .type)
             try container.encode(sessionID, forKey: .sessionID)
-            try container.encode(answer, forKey: .answer)
+            try container.encode(response, forKey: .response)
         case let .processCodexHook(payload):
             try container.encode(CommandType.processCodexHook, forKey: .type)
             try container.encode(payload, forKey: .codexHook)
+        case let .processClaudeHook(payload):
+            try container.encode(CommandType.processClaudeHook, forKey: .type)
+            try container.encode(payload, forKey: .claudeHook)
         }
     }
 }
@@ -143,6 +151,7 @@ public enum BridgeCommand: Equatable, Codable, Sendable {
 public enum BridgeResponse: Equatable, Codable, Sendable {
     case acknowledged
     case codexHookDirective(CodexHookDirective)
+    case claudeHookDirective(ClaudeHookDirective)
 
     private enum CodingKeys: String, CodingKey {
         case type
@@ -152,6 +161,7 @@ public enum BridgeResponse: Equatable, Codable, Sendable {
     private enum ResponseType: String, Codable {
         case acknowledged
         case codexHookDirective
+        case claudeHookDirective
     }
 
     public init(from decoder: any Decoder) throws {
@@ -163,6 +173,8 @@ public enum BridgeResponse: Equatable, Codable, Sendable {
             self = .acknowledged
         case .codexHookDirective:
             self = .codexHookDirective(try container.decode(CodexHookDirective.self, forKey: .directive))
+        case .claudeHookDirective:
+            self = .claudeHookDirective(try container.decode(ClaudeHookDirective.self, forKey: .directive))
         }
     }
 
@@ -174,6 +186,9 @@ public enum BridgeResponse: Equatable, Codable, Sendable {
             try container.encode(ResponseType.acknowledged, forKey: .type)
         case let .codexHookDirective(directive):
             try container.encode(ResponseType.codexHookDirective, forKey: .type)
+            try container.encode(directive, forKey: .directive)
+        case let .claudeHookDirective(directive):
+            try container.encode(ResponseType.claudeHookDirective, forKey: .type)
             try container.encode(directive, forKey: .directive)
         }
     }

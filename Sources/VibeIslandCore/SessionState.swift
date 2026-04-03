@@ -66,7 +66,8 @@ public struct SessionState: Equatable, Sendable {
                 summary: payload.summary,
                 updatedAt: payload.timestamp,
                 jumpTarget: payload.jumpTarget,
-                codexMetadata: payload.codexMetadata?.isEmpty == true ? nil : payload.codexMetadata
+                codexMetadata: payload.codexMetadata?.isEmpty == true ? nil : payload.codexMetadata,
+                claudeMetadata: payload.claudeMetadata?.isEmpty == true ? nil : payload.claudeMetadata
             )
             upsert(session)
 
@@ -139,12 +140,21 @@ public struct SessionState: Equatable, Sendable {
             session.codexMetadata = payload.codexMetadata.isEmpty ? nil : payload.codexMetadata
             session.updatedAt = payload.timestamp
             upsert(session)
+
+        case let .claudeSessionMetadataUpdated(payload):
+            guard var session = sessionsByID[payload.sessionID] else {
+                return
+            }
+
+            session.claudeMetadata = payload.claudeMetadata.isEmpty ? nil : payload.claudeMetadata
+            session.updatedAt = payload.timestamp
+            upsert(session)
         }
     }
 
     public mutating func resolvePermission(
         sessionID: String,
-        approved: Bool,
+        resolution: PermissionResolution,
         at timestamp: Date = .now
     ) {
         guard var session = sessionsByID[sessionID] else {
@@ -154,12 +164,16 @@ public struct SessionState: Equatable, Sendable {
         session.permissionRequest = nil
         session.updatedAt = timestamp
 
-        if approved {
+        if resolution.isApproved {
             session.phase = .running
-            session.summary = "Permission approved. Agent resumed work."
+            session.summary = session.tool == .claudeCode
+                ? "Permission approved. Claude continued the tool."
+                : "Permission approved. Agent resumed work."
         } else {
             session.phase = .completed
-            session.summary = "Permission denied. Review the session in the terminal."
+            session.summary = session.tool == .claudeCode
+                ? "Permission denied in Vibe Island."
+                : "Permission denied. Review the session in the terminal."
         }
 
         upsert(session)
@@ -167,7 +181,7 @@ public struct SessionState: Equatable, Sendable {
 
     public mutating func answerQuestion(
         sessionID: String,
-        answer: String,
+        response: QuestionPromptResponse,
         at timestamp: Date = .now
     ) {
         guard var session = sessionsByID[sessionID] else {
@@ -176,7 +190,8 @@ public struct SessionState: Equatable, Sendable {
 
         session.questionPrompt = nil
         session.phase = .running
-        session.summary = "Answered: \(answer)"
+        let summary = response.displaySummary
+        session.summary = summary.isEmpty ? "Answered the question." : "Answered: \(summary)"
         session.updatedAt = timestamp
         upsert(session)
     }

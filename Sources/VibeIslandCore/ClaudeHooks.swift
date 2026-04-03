@@ -1,0 +1,995 @@
+import Foundation
+
+public typealias ClaudeHookJSONValue = CodexHookJSONValue
+
+public enum ClaudePermissionMode: String, Codable, Sendable {
+    case `default`
+    case acceptEdits
+    case plan
+    case dontAsk
+    case bypassPermissions
+}
+
+public enum ClaudePermissionBehavior: String, Codable, Sendable {
+    case allow
+    case deny
+    case ask
+}
+
+public enum ClaudePermissionUpdateDestination: String, Codable, Sendable {
+    case userSettings
+    case projectSettings
+    case localSettings
+    case session
+    case cliArg
+}
+
+public struct ClaudePermissionRuleValue: Equatable, Codable, Sendable {
+    public var toolName: String
+    public var ruleContent: String?
+
+    public init(toolName: String, ruleContent: String? = nil) {
+        self.toolName = toolName
+        self.ruleContent = ruleContent
+    }
+}
+
+public enum ClaudePermissionUpdate: Equatable, Codable, Sendable {
+    case addRules(destination: ClaudePermissionUpdateDestination, rules: [ClaudePermissionRuleValue], behavior: ClaudePermissionBehavior)
+    case replaceRules(destination: ClaudePermissionUpdateDestination, rules: [ClaudePermissionRuleValue], behavior: ClaudePermissionBehavior)
+    case removeRules(destination: ClaudePermissionUpdateDestination, rules: [ClaudePermissionRuleValue], behavior: ClaudePermissionBehavior)
+    case setMode(destination: ClaudePermissionUpdateDestination, mode: ClaudePermissionMode)
+    case addDirectories(destination: ClaudePermissionUpdateDestination, directories: [String])
+    case removeDirectories(destination: ClaudePermissionUpdateDestination, directories: [String])
+
+    private enum CodingKeys: String, CodingKey {
+        case type
+        case destination
+        case rules
+        case behavior
+        case mode
+        case directories
+    }
+
+    private enum UpdateType: String, Codable {
+        case addRules
+        case replaceRules
+        case removeRules
+        case setMode
+        case addDirectories
+        case removeDirectories
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let type = try container.decode(UpdateType.self, forKey: .type)
+        let destination = try container.decode(ClaudePermissionUpdateDestination.self, forKey: .destination)
+
+        switch type {
+        case .addRules:
+            self = .addRules(
+                destination: destination,
+                rules: try container.decode([ClaudePermissionRuleValue].self, forKey: .rules),
+                behavior: try container.decode(ClaudePermissionBehavior.self, forKey: .behavior)
+            )
+        case .replaceRules:
+            self = .replaceRules(
+                destination: destination,
+                rules: try container.decode([ClaudePermissionRuleValue].self, forKey: .rules),
+                behavior: try container.decode(ClaudePermissionBehavior.self, forKey: .behavior)
+            )
+        case .removeRules:
+            self = .removeRules(
+                destination: destination,
+                rules: try container.decode([ClaudePermissionRuleValue].self, forKey: .rules),
+                behavior: try container.decode(ClaudePermissionBehavior.self, forKey: .behavior)
+            )
+        case .setMode:
+            self = .setMode(
+                destination: destination,
+                mode: try container.decode(ClaudePermissionMode.self, forKey: .mode)
+            )
+        case .addDirectories:
+            self = .addDirectories(
+                destination: destination,
+                directories: try container.decode([String].self, forKey: .directories)
+            )
+        case .removeDirectories:
+            self = .removeDirectories(
+                destination: destination,
+                directories: try container.decode([String].self, forKey: .directories)
+            )
+        }
+    }
+
+    public func encode(to encoder: any Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+
+        switch self {
+        case let .addRules(destination, rules, behavior):
+            try container.encode(UpdateType.addRules, forKey: .type)
+            try container.encode(destination, forKey: .destination)
+            try container.encode(rules, forKey: .rules)
+            try container.encode(behavior, forKey: .behavior)
+        case let .replaceRules(destination, rules, behavior):
+            try container.encode(UpdateType.replaceRules, forKey: .type)
+            try container.encode(destination, forKey: .destination)
+            try container.encode(rules, forKey: .rules)
+            try container.encode(behavior, forKey: .behavior)
+        case let .removeRules(destination, rules, behavior):
+            try container.encode(UpdateType.removeRules, forKey: .type)
+            try container.encode(destination, forKey: .destination)
+            try container.encode(rules, forKey: .rules)
+            try container.encode(behavior, forKey: .behavior)
+        case let .setMode(destination, mode):
+            try container.encode(UpdateType.setMode, forKey: .type)
+            try container.encode(destination, forKey: .destination)
+            try container.encode(mode, forKey: .mode)
+        case let .addDirectories(destination, directories):
+            try container.encode(UpdateType.addDirectories, forKey: .type)
+            try container.encode(destination, forKey: .destination)
+            try container.encode(directories, forKey: .directories)
+        case let .removeDirectories(destination, directories):
+            try container.encode(UpdateType.removeDirectories, forKey: .type)
+            try container.encode(destination, forKey: .destination)
+            try container.encode(directories, forKey: .directories)
+        }
+    }
+}
+
+public struct ClaudeSessionMetadata: Equatable, Codable, Sendable {
+    public var transcriptPath: String?
+    public var initialUserPrompt: String?
+    public var lastUserPrompt: String?
+    public var lastAssistantMessage: String?
+    public var currentTool: String?
+    public var currentToolInputPreview: String?
+    public var model: String?
+    public var startupSource: ClaudeSessionStartSource?
+    public var permissionMode: ClaudePermissionMode?
+    public var agentID: String?
+    public var agentType: String?
+
+    public init(
+        transcriptPath: String? = nil,
+        initialUserPrompt: String? = nil,
+        lastUserPrompt: String? = nil,
+        lastAssistantMessage: String? = nil,
+        currentTool: String? = nil,
+        currentToolInputPreview: String? = nil,
+        model: String? = nil,
+        startupSource: ClaudeSessionStartSource? = nil,
+        permissionMode: ClaudePermissionMode? = nil,
+        agentID: String? = nil,
+        agentType: String? = nil
+    ) {
+        self.transcriptPath = transcriptPath
+        self.initialUserPrompt = initialUserPrompt
+        self.lastUserPrompt = lastUserPrompt
+        self.lastAssistantMessage = lastAssistantMessage
+        self.currentTool = currentTool
+        self.currentToolInputPreview = currentToolInputPreview
+        self.model = model
+        self.startupSource = startupSource
+        self.permissionMode = permissionMode
+        self.agentID = agentID
+        self.agentType = agentType
+    }
+
+    public var isEmpty: Bool {
+        transcriptPath == nil
+            && initialUserPrompt == nil
+            && lastUserPrompt == nil
+            && lastAssistantMessage == nil
+            && currentTool == nil
+            && currentToolInputPreview == nil
+            && model == nil
+            && startupSource == nil
+            && permissionMode == nil
+            && agentID == nil
+            && agentType == nil
+    }
+}
+
+public enum ClaudeHookEventName: String, Codable, Sendable {
+    case sessionStart = "SessionStart"
+    case sessionEnd = "SessionEnd"
+    case userPromptSubmit = "UserPromptSubmit"
+    case preToolUse = "PreToolUse"
+    case postToolUse = "PostToolUse"
+    case postToolUseFailure = "PostToolUseFailure"
+    case permissionRequest = "PermissionRequest"
+    case permissionDenied = "PermissionDenied"
+    case notification = "Notification"
+    case stop = "Stop"
+    case stopFailure = "StopFailure"
+    case subagentStart = "SubagentStart"
+    case subagentStop = "SubagentStop"
+    case preCompact = "PreCompact"
+}
+
+public enum ClaudeSessionStartSource: String, Codable, Sendable {
+    case startup
+    case resume
+    case clear
+    case compact
+}
+
+public struct ClaudeHookPayload: Equatable, Codable, Sendable {
+    public var cwd: String
+    public var hookEventName: ClaudeHookEventName
+    public var sessionID: String
+    public var transcriptPath: String?
+    public var permissionMode: ClaudePermissionMode?
+    public var agentID: String?
+    public var agentType: String?
+    public var model: String?
+    public var source: ClaudeSessionStartSource?
+    public var toolName: String?
+    public var toolInput: ClaudeHookJSONValue?
+    public var toolUseID: String?
+    public var toolResponse: ClaudeHookJSONValue?
+    public var permissionSuggestions: [ClaudePermissionUpdate]?
+    public var prompt: String?
+    public var message: String?
+    public var title: String?
+    public var notificationType: String?
+    public var stopHookActive: Bool?
+    public var lastAssistantMessage: String?
+    public var error: String?
+    public var errorDetails: String?
+    public var isInterrupt: Bool?
+    public var agentTranscriptPath: String?
+    public var terminalApp: String?
+    public var terminalSessionID: String?
+    public var terminalTTY: String?
+    public var terminalTitle: String?
+
+    private enum CodingKeys: String, CodingKey {
+        case cwd
+        case hookEventName = "hook_event_name"
+        case sessionID = "session_id"
+        case transcriptPath = "transcript_path"
+        case permissionMode = "permission_mode"
+        case agentID = "agent_id"
+        case agentType = "agent_type"
+        case model
+        case source
+        case toolName = "tool_name"
+        case toolInput = "tool_input"
+        case toolUseID = "tool_use_id"
+        case toolResponse = "tool_response"
+        case permissionSuggestions = "permission_suggestions"
+        case prompt
+        case message
+        case title
+        case notificationType = "notification_type"
+        case stopHookActive = "stop_hook_active"
+        case lastAssistantMessage = "last_assistant_message"
+        case error
+        case errorDetails = "error_details"
+        case isInterrupt = "is_interrupt"
+        case agentTranscriptPath = "agent_transcript_path"
+        case terminalApp = "terminal_app"
+        case terminalSessionID = "terminal_session_id"
+        case terminalTTY = "terminal_tty"
+        case terminalTitle = "terminal_title"
+    }
+
+    public init(
+        cwd: String,
+        hookEventName: ClaudeHookEventName,
+        sessionID: String,
+        transcriptPath: String? = nil,
+        permissionMode: ClaudePermissionMode? = nil,
+        agentID: String? = nil,
+        agentType: String? = nil,
+        model: String? = nil,
+        source: ClaudeSessionStartSource? = nil,
+        toolName: String? = nil,
+        toolInput: ClaudeHookJSONValue? = nil,
+        toolUseID: String? = nil,
+        toolResponse: ClaudeHookJSONValue? = nil,
+        permissionSuggestions: [ClaudePermissionUpdate]? = nil,
+        prompt: String? = nil,
+        message: String? = nil,
+        title: String? = nil,
+        notificationType: String? = nil,
+        stopHookActive: Bool? = nil,
+        lastAssistantMessage: String? = nil,
+        error: String? = nil,
+        errorDetails: String? = nil,
+        isInterrupt: Bool? = nil,
+        agentTranscriptPath: String? = nil,
+        terminalApp: String? = nil,
+        terminalSessionID: String? = nil,
+        terminalTTY: String? = nil,
+        terminalTitle: String? = nil
+    ) {
+        self.cwd = cwd
+        self.hookEventName = hookEventName
+        self.sessionID = sessionID
+        self.transcriptPath = transcriptPath
+        self.permissionMode = permissionMode
+        self.agentID = agentID
+        self.agentType = agentType
+        self.model = model
+        self.source = source
+        self.toolName = toolName
+        self.toolInput = toolInput
+        self.toolUseID = toolUseID
+        self.toolResponse = toolResponse
+        self.permissionSuggestions = permissionSuggestions
+        self.prompt = prompt
+        self.message = message
+        self.title = title
+        self.notificationType = notificationType
+        self.stopHookActive = stopHookActive
+        self.lastAssistantMessage = lastAssistantMessage
+        self.error = error
+        self.errorDetails = errorDetails
+        self.isInterrupt = isInterrupt
+        self.agentTranscriptPath = agentTranscriptPath
+        self.terminalApp = terminalApp
+        self.terminalSessionID = terminalSessionID
+        self.terminalTTY = terminalTTY
+        self.terminalTitle = terminalTitle
+    }
+}
+
+public struct ClaudePreToolUseDirective: Equatable, Codable, Sendable {
+    public var permissionDecision: ClaudePermissionBehavior?
+    public var permissionDecisionReason: String?
+    public var updatedInput: ClaudeHookJSONValue?
+    public var additionalContext: String?
+
+    public init(
+        permissionDecision: ClaudePermissionBehavior? = nil,
+        permissionDecisionReason: String? = nil,
+        updatedInput: ClaudeHookJSONValue? = nil,
+        additionalContext: String? = nil
+    ) {
+        self.permissionDecision = permissionDecision
+        self.permissionDecisionReason = permissionDecisionReason
+        self.updatedInput = updatedInput
+        self.additionalContext = additionalContext
+    }
+}
+
+public enum ClaudePermissionRequestDecision: Equatable, Codable, Sendable {
+    case allow(updatedInput: ClaudeHookJSONValue? = nil, updatedPermissions: [ClaudePermissionUpdate] = [])
+    case deny(message: String? = nil, interrupt: Bool = false)
+
+    private enum CodingKeys: String, CodingKey {
+        case behavior
+        case updatedInput
+        case updatedPermissions
+        case message
+        case interrupt
+    }
+
+    private enum Behavior: String, Codable {
+        case allow
+        case deny
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let behavior = try container.decode(Behavior.self, forKey: .behavior)
+
+        switch behavior {
+        case .allow:
+            self = .allow(
+                updatedInput: try container.decodeIfPresent(ClaudeHookJSONValue.self, forKey: .updatedInput),
+                updatedPermissions: try container.decodeIfPresent([ClaudePermissionUpdate].self, forKey: .updatedPermissions) ?? []
+            )
+        case .deny:
+            self = .deny(
+                message: try container.decodeIfPresent(String.self, forKey: .message),
+                interrupt: try container.decodeIfPresent(Bool.self, forKey: .interrupt) ?? false
+            )
+        }
+    }
+
+    public func encode(to encoder: any Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+
+        switch self {
+        case let .allow(updatedInput, updatedPermissions):
+            try container.encode(Behavior.allow, forKey: .behavior)
+            try container.encodeIfPresent(updatedInput, forKey: .updatedInput)
+            if !updatedPermissions.isEmpty {
+                try container.encode(updatedPermissions, forKey: .updatedPermissions)
+            }
+        case let .deny(message, interrupt):
+            try container.encode(Behavior.deny, forKey: .behavior)
+            try container.encodeIfPresent(message, forKey: .message)
+            if interrupt {
+                try container.encode(true, forKey: .interrupt)
+            }
+        }
+    }
+}
+
+public enum ClaudeHookDirective: Equatable, Codable, Sendable {
+    case preToolUse(ClaudePreToolUseDirective)
+    case permissionRequest(ClaudePermissionRequestDecision)
+
+    private enum CodingKeys: String, CodingKey {
+        case type
+        case directive
+    }
+
+    private enum DirectiveType: String, Codable {
+        case preToolUse
+        case permissionRequest
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let type = try container.decode(DirectiveType.self, forKey: .type)
+
+        switch type {
+        case .preToolUse:
+            self = .preToolUse(try container.decode(ClaudePreToolUseDirective.self, forKey: .directive))
+        case .permissionRequest:
+            self = .permissionRequest(try container.decode(ClaudePermissionRequestDecision.self, forKey: .directive))
+        }
+    }
+
+    public func encode(to encoder: any Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+
+        switch self {
+        case let .preToolUse(directive):
+            try container.encode(DirectiveType.preToolUse, forKey: .type)
+            try container.encode(directive, forKey: .directive)
+        case let .permissionRequest(directive):
+            try container.encode(DirectiveType.permissionRequest, forKey: .type)
+            try container.encode(directive, forKey: .directive)
+        }
+    }
+}
+
+public enum ClaudeHookOutputEncoder {
+    private struct PreToolUseOutput: Encodable {
+        struct HookSpecificOutput: Encodable {
+            var hookEventName = ClaudeHookEventName.preToolUse.rawValue
+            var permissionDecision: ClaudePermissionBehavior?
+            var permissionDecisionReason: String?
+            var updatedInput: ClaudeHookJSONValue?
+            var additionalContext: String?
+        }
+
+        var continue_: Bool = true
+        var suppressOutput: Bool = true
+        var hookSpecificOutput: HookSpecificOutput
+
+        private enum CodingKeys: String, CodingKey {
+            case continue_ = "continue"
+            case suppressOutput
+            case hookSpecificOutput
+        }
+    }
+
+    private struct PermissionRequestOutput: Encodable {
+        struct HookSpecificOutput: Encodable {
+            var hookEventName = ClaudeHookEventName.permissionRequest.rawValue
+            var decision: ClaudePermissionRequestDecision
+        }
+
+        var continue_: Bool = true
+        var suppressOutput: Bool = true
+        var hookSpecificOutput: HookSpecificOutput
+
+        private enum CodingKeys: String, CodingKey {
+            case continue_ = "continue"
+            case suppressOutput
+            case hookSpecificOutput
+        }
+    }
+
+    public static func standardOutput(for response: BridgeResponse) throws -> Data? {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+
+        let data: Data?
+        switch response {
+        case .acknowledged:
+            data = nil
+        case .codexHookDirective:
+            data = nil
+        case let .claudeHookDirective(directive):
+            switch directive {
+            case let .preToolUse(payload):
+                data = try encoder.encode(
+                    PreToolUseOutput(
+                        hookSpecificOutput: PreToolUseOutput.HookSpecificOutput(
+                            permissionDecision: payload.permissionDecision,
+                            permissionDecisionReason: payload.permissionDecisionReason,
+                            updatedInput: payload.updatedInput,
+                            additionalContext: payload.additionalContext
+                        )
+                    )
+                )
+            case let .permissionRequest(decision):
+                data = try encoder.encode(
+                    PermissionRequestOutput(
+                        hookSpecificOutput: PermissionRequestOutput.HookSpecificOutput(decision: decision)
+                    )
+                )
+            }
+        }
+
+        guard var line = data else {
+            return nil
+        }
+
+        line.append(UInt8(ascii: "\n"))
+        return line
+    }
+}
+
+public extension ClaudeHookPayload {
+    var workspaceName: String {
+        let workspace = URL(fileURLWithPath: cwd).lastPathComponent
+        return workspace.isEmpty ? "Workspace" : workspace
+    }
+
+    var sessionTitle: String {
+        "Claude · \(workspaceName)"
+    }
+
+    var defaultJumpTarget: JumpTarget {
+        JumpTarget(
+            terminalApp: terminalApp ?? "Terminal",
+            workspaceName: workspaceName,
+            paneTitle: terminalTitle ?? "Claude \(sessionID.prefix(8))",
+            workingDirectory: cwd,
+            terminalSessionID: terminalSessionID,
+            terminalTTY: terminalTTY
+        )
+    }
+
+    var defaultClaudeMetadata: ClaudeSessionMetadata {
+        ClaudeSessionMetadata(
+            transcriptPath: transcriptPath ?? agentTranscriptPath,
+            initialUserPrompt: promptPreview,
+            lastUserPrompt: promptPreview,
+            lastAssistantMessage: assistantMessagePreview,
+            currentTool: toolName,
+            currentToolInputPreview: toolInputPreview,
+            model: model,
+            startupSource: source,
+            permissionMode: permissionMode,
+            agentID: agentID,
+            agentType: agentType
+        )
+    }
+
+    var implicitStartSummary: String {
+        switch hookEventName {
+        case .sessionStart:
+            switch source {
+            case .resume:
+                return "Resumed Claude session in \(workspaceName)."
+            case .clear:
+                return "Cleared Claude context in \(workspaceName)."
+            case .compact:
+                return "Compacted Claude context in \(workspaceName)."
+            case .startup, .none:
+                return "Started Claude session in \(workspaceName)."
+            }
+        case .userPromptSubmit:
+            return "Claude received a new prompt in \(workspaceName)."
+        case .preToolUse:
+            return "Claude is preparing \(toolName ?? "a tool") in \(workspaceName)."
+        case .postToolUse:
+            return "Claude finished \(toolName ?? "a tool") in \(workspaceName)."
+        case .postToolUseFailure:
+            return "Claude hit a tool error in \(workspaceName)."
+        case .permissionRequest:
+            return "Claude needs approval in \(workspaceName)."
+        case .permissionDenied:
+            return "Claude permission was denied in \(workspaceName)."
+        case .notification:
+            return "Claude sent a notification in \(workspaceName)."
+        case .stop:
+            return "Claude completed a turn in \(workspaceName)."
+        case .stopFailure:
+            return "Claude failed to finish a turn in \(workspaceName)."
+        case .subagentStart:
+            return "Claude started a subagent in \(workspaceName)."
+        case .subagentStop:
+            return "Claude finished a subagent in \(workspaceName)."
+        case .preCompact:
+            return "Claude is compacting the conversation in \(workspaceName)."
+        case .sessionEnd:
+            return "Claude session ended in \(workspaceName)."
+        }
+    }
+
+    var promptPreview: String? {
+        clipped(prompt)
+    }
+
+    var assistantMessagePreview: String? {
+        clipped(lastAssistantMessage)
+    }
+
+    var toolInputPreview: String? {
+        clipped(stringValue(for: toolInput))
+    }
+
+    var toolResponsePreview: String? {
+        clipped(stringValue(for: toolResponse))
+    }
+
+    var notificationPreview: String? {
+        let preview = [title, message]
+            .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+            .joined(separator: " · ")
+        return clipped(preview)
+    }
+
+    var permissionCorrelationKey: String {
+        let input = serializedToolInput ?? "<none>"
+        return "\(sessionID)|\(toolName ?? "<unknown>")|\(input)"
+    }
+
+    var serializedToolInput: String? {
+        guard let toolInput else {
+            return nil
+        }
+
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        let data = try? encoder.encode(toolInput)
+        return data.flatMap { String(data: $0, encoding: .utf8) }
+    }
+
+    var questionPrompt: QuestionPrompt? {
+        guard toolName == "AskUserQuestion",
+              case let .object(root) = toolInput,
+              case let .array(rawQuestions) = root["questions"] else {
+            return nil
+        }
+
+        let questions = rawQuestions.compactMap { rawQuestion -> QuestionPromptItem? in
+            guard case let .object(questionObject) = rawQuestion,
+                  let questionText = questionObject["question"]?.stringValue,
+                  let header = questionObject["header"]?.stringValue,
+                  case let .array(rawOptions) = questionObject["options"] else {
+                return nil
+            }
+
+            let options = rawOptions.compactMap { rawOption -> QuestionOption? in
+                guard case let .object(optionObject) = rawOption,
+                      let label = optionObject["label"]?.stringValue else {
+                    return nil
+                }
+
+                return QuestionOption(
+                    label: label,
+                    description: optionObject["description"]?.stringValue ?? ""
+                )
+            }
+
+            guard !options.isEmpty else {
+                return nil
+            }
+
+            return QuestionPromptItem(
+                question: questionText,
+                header: header,
+                options: options,
+                multiSelect: questionObject["multiSelect"]?.boolValue ?? false
+            )
+        }
+
+        guard !questions.isEmpty else {
+            return nil
+        }
+
+        let title: String
+        if questions.count == 1, let firstQuestion = questions.first?.question {
+            title = firstQuestion
+        } else {
+            title = "Claude has \(questions.count) questions for you."
+        }
+
+        return QuestionPrompt(title: title, questions: questions)
+    }
+
+    var permissionRequestTitle: String {
+        switch toolName {
+        case "ExitPlanMode":
+            return "Exit plan mode"
+        case "AskUserQuestion":
+            return "Answer Claude's questions"
+        case let toolName?:
+            return "Allow \(toolName)"
+        case nil:
+            return "Allow Claude tool"
+        }
+    }
+
+    var permissionRequestSummary: String {
+        if toolName == "ExitPlanMode" {
+            return "Claude wants to exit plan mode and start implementation."
+        }
+
+        if let questionPrompt {
+            return questionPrompt.title
+        }
+
+        if let notificationPreview {
+            return notificationPreview
+        }
+
+        if let toolName {
+            return "Claude wants to run \(toolName)."
+        }
+
+        return "Claude needs permission to continue."
+    }
+
+    var permissionAffectedPath: String {
+        if let explicitPath = extractedPathValue, !explicitPath.isEmpty {
+            return explicitPath
+        }
+
+        if let preview = toolInputPreview, !preview.isEmpty {
+            return preview
+        }
+
+        return cwd
+    }
+
+    func withRuntimeContext(environment: [String: String]) -> ClaudeHookPayload {
+        var payload = self
+
+        if payload.terminalApp == nil {
+            payload.terminalApp = inferTerminalApp(from: environment)
+        }
+
+        if payload.terminalTTY == nil {
+            payload.terminalTTY = currentTTY()
+        }
+
+        if let terminalApp = payload.terminalApp {
+            let locator = terminalLocator(for: terminalApp)
+            if payload.terminalSessionID == nil {
+                payload.terminalSessionID = locator.sessionID
+            }
+            if payload.terminalTTY == nil {
+                payload.terminalTTY = locator.tty
+            }
+            if payload.terminalTitle == nil {
+                payload.terminalTitle = locator.title
+            }
+        }
+
+        return payload
+    }
+
+    private var extractedPathValue: String? {
+        guard case let .object(root) = toolInput else {
+            return nil
+        }
+
+        let candidateKeys = [
+            "file_path",
+            "path",
+            "notebook_path",
+            "target_file",
+            "working_directory",
+        ]
+
+        for key in candidateKeys {
+            if let value = root[key]?.stringValue, !value.isEmpty {
+                return value
+            }
+        }
+
+        return nil
+    }
+
+    private func clipped(_ value: String?, limit: Int = 110) -> String? {
+        guard let value else {
+            return nil
+        }
+
+        let collapsed = value
+            .replacingOccurrences(of: "\n", with: " ")
+            .replacingOccurrences(of: "\t", with: " ")
+            .split(separator: " ", omittingEmptySubsequences: true)
+            .joined(separator: " ")
+
+        guard !collapsed.isEmpty else {
+            return nil
+        }
+
+        guard collapsed.count > limit else {
+            return collapsed
+        }
+
+        let endIndex = collapsed.index(collapsed.startIndex, offsetBy: limit - 1)
+        return "\(collapsed[..<endIndex])…"
+    }
+
+    private func stringValue(for value: ClaudeHookJSONValue?) -> String? {
+        guard let value else {
+            return nil
+        }
+
+        switch value {
+        case let .string(text):
+            return text
+        case let .number(number):
+            return String(number)
+        case let .boolean(flag):
+            return flag ? "true" : "false"
+        case .null:
+            return "null"
+        case let .array(items):
+            return "[\(items.compactMap { stringValue(for: $0) }.joined(separator: ", "))]"
+        case let .object(object):
+            let rendered = object
+                .keys
+                .sorted()
+                .map { key in
+                    let value = stringValue(for: object[key]) ?? "null"
+                    return "\(key): \(value)"
+                }
+                .joined(separator: ", ")
+            return "{\(rendered)}"
+        }
+    }
+
+    private func inferTerminalApp(from environment: [String: String]) -> String? {
+        if environment["ITERM_SESSION_ID"] != nil || environment["LC_TERMINAL"] == "iTerm2" {
+            return "iTerm"
+        }
+
+        if environment["GHOSTTY_RESOURCES_DIR"] != nil {
+            return "Ghostty"
+        }
+
+        let termProgram = environment["TERM_PROGRAM"]?.lowercased()
+        switch termProgram {
+        case .some("apple_terminal"):
+            return "Terminal"
+        case .some("iterm.app"), .some("iterm2"):
+            return "iTerm"
+        case let value? where value.contains("ghostty"):
+            return "Ghostty"
+        default:
+            return nil
+        }
+    }
+
+    private func currentTTY() -> String? {
+        commandOutput(executablePath: "/usr/bin/tty", arguments: [])
+    }
+
+    private func terminalLocator(for terminalApp: String) -> (sessionID: String?, tty: String?, title: String?) {
+        let normalized = terminalApp.lowercased()
+
+        if normalized.contains("iterm") {
+            let values = osascriptValues(script: """
+            tell application "iTerm"
+                if not (it is running) then return ""
+                tell current session of current window
+                    return (id as text) & (ASCII character 31) & (tty as text) & (ASCII character 31) & (name as text)
+                end tell
+            end tell
+            """)
+            return (
+                sessionID: values[safe: 0],
+                tty: values[safe: 1],
+                title: values[safe: 2]
+            )
+        }
+
+        if normalized.contains("ghostty") {
+            let values = osascriptValues(script: """
+            tell application "Ghostty"
+                if not (it is running) then return ""
+                tell focused terminal of selected tab of front window
+                    return (id as text) & (ASCII character 31) & (working directory as text) & (ASCII character 31) & (name as text)
+                end tell
+            end tell
+            """)
+            return (
+                sessionID: values[safe: 0],
+                tty: nil,
+                title: values[safe: 2]
+            )
+        }
+
+        if normalized.contains("terminal") {
+            let values = osascriptValues(script: """
+            tell application "Terminal"
+                if not (it is running) then return ""
+                tell selected tab of front window
+                    return (tty as text) & (ASCII character 31) & (custom title as text)
+                end tell
+            end tell
+            """)
+            return (
+                sessionID: nil,
+                tty: values[safe: 0],
+                title: values[safe: 1]
+            )
+        }
+
+        return (nil, nil, nil)
+    }
+
+    private func osascriptValues(script: String) -> [String] {
+        guard let raw = commandOutput(executablePath: "/usr/bin/osascript", arguments: ["-e", script]) else {
+            return []
+        }
+
+        let separator = String(UnicodeScalar(31)!)
+        return raw
+            .components(separatedBy: separator)
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+    }
+
+    private func commandOutput(executablePath: String, arguments: [String]) -> String? {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: executablePath)
+        process.arguments = arguments
+
+        let outputPipe = Pipe()
+        process.standardOutput = outputPipe
+        process.standardError = Pipe()
+
+        do {
+            try process.run()
+            process.waitUntilExit()
+        } catch {
+            return nil
+        }
+
+        guard process.terminationStatus == 0 else {
+            return nil
+        }
+
+        let data = outputPipe.fileHandleForReading.readDataToEndOfFile()
+        guard let output = String(data: data, encoding: .utf8)?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+              !output.isEmpty else {
+            return nil
+        }
+
+        return output
+    }
+}
+
+private extension ClaudeHookJSONValue {
+    var stringValue: String? {
+        if case let .string(value) = self {
+            value
+        } else {
+            nil
+        }
+    }
+
+    var boolValue: Bool? {
+        if case let .boolean(value) = self {
+            value
+        } else {
+            nil
+        }
+    }
+}
+
+private extension Array {
+    subscript(safe index: Int) -> Element? {
+        indices.contains(index) ? self[index] : nil
+    }
+}

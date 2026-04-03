@@ -939,7 +939,7 @@ private struct IslandSessionRow: View {
 private struct IslandNotificationCard: View {
     let session: AgentSession
     let onApprove: (Bool) -> Void
-    let onAnswer: (String) -> Void
+    let onAnswer: (QuestionPromptResponse) -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -1052,29 +1052,9 @@ private struct IslandNotificationCard: View {
     }
 
     private var questionBody: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text(session.questionPrompt?.title.trimmedForNotificationCard ?? "Answer needed")
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(.yellow.opacity(0.96))
-                .fixedSize(horizontal: false, vertical: true)
-
-            HStack(spacing: 10) {
-                ForEach(session.questionPrompt?.options.prefix(3) ?? [], id: \.self) { option in
-                    Button(option) { onAnswer(option) }
-                        .buttonStyle(IslandWideButtonStyle(kind: .secondary))
-                }
-            }
-        }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 12)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .fill(Color.white.opacity(0.04))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .strokeBorder(.white.opacity(0.06))
+        StructuredQuestionPromptView(
+            prompt: session.questionPrompt,
+            onAnswer: onAnswer
         )
     }
 
@@ -1099,7 +1079,7 @@ private struct IslandNotificationCard: View {
                 .fill(.white.opacity(0.04))
                 .frame(height: 1)
 
-            Text(session.codexMetadata?.lastAssistantMessage?.trimmedForNotificationCard ?? session.summary)
+            Text(session.lastAssistantMessageText?.trimmedForNotificationCard ?? session.summary)
                 .font(.system(size: 13.5, weight: .medium))
                 .foregroundStyle(.white.opacity(0.88))
                 .padding(.horizontal, 14)
@@ -1154,9 +1134,15 @@ private struct IslandNotificationCard: View {
     }
 
     private var commandLabel: String {
-        switch session.codexMetadata?.currentTool {
+        switch session.currentToolName {
         case "exec_command":
             return "Bash"
+        case "Bash":
+            return "Bash"
+        case "AskUserQuestion":
+            return "Question"
+        case "ExitPlanMode":
+            return "Plan"
         case "apply_patch":
             return "Patch"
         case "write_stdin":
@@ -1169,7 +1155,7 @@ private struct IslandNotificationCard: View {
     }
 
     private var commandPreviewText: String {
-        let preview = session.codexMetadata?.currentCommandPreview?.trimmedForNotificationCard
+        let preview = session.currentCommandPreviewText?.trimmedForNotificationCard
         if let preview, !preview.isEmpty {
             return "$ \(preview)"
         }
@@ -1225,6 +1211,121 @@ private struct HiddenSessionsRow: View {
             RoundedRectangle(cornerRadius: 22, style: .continuous)
                 .strokeBorder(.white.opacity(0.04))
         )
+    }
+}
+
+private struct StructuredQuestionPromptView: View {
+    let prompt: QuestionPrompt?
+    let onAnswer: (QuestionPromptResponse) -> Void
+
+    @State private var selections: [String: Set<String>] = [:]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text(prompt?.title.trimmedForNotificationCard ?? "Answer needed")
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(.yellow.opacity(0.96))
+                .fixedSize(horizontal: false, vertical: true)
+
+            if structuredQuestions.isEmpty {
+                HStack(spacing: 10) {
+                    ForEach(prompt?.options.prefix(3) ?? [], id: \.self) { option in
+                        Button(option) {
+                            onAnswer(QuestionPromptResponse(answer: option))
+                        }
+                        .buttonStyle(IslandWideButtonStyle(kind: .secondary))
+                    }
+                }
+            } else {
+                VStack(alignment: .leading, spacing: 12) {
+                    ForEach(structuredQuestions, id: \.question) { question in
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text(question.header)
+                                .font(.system(size: 10.5, weight: .bold))
+                                .foregroundStyle(.white.opacity(0.5))
+
+                            Text(question.question)
+                                .font(.system(size: 12.5, weight: .medium))
+                                .foregroundStyle(.white.opacity(0.88))
+                                .fixedSize(horizontal: false, vertical: true)
+
+                            HStack(spacing: 8) {
+                                ForEach(question.options.prefix(4), id: \.label) { option in
+                                    Button(option.label) {
+                                        toggle(option: option.label, for: question)
+                                    }
+                                    .buttonStyle(
+                                        IslandWideButtonStyle(
+                                            kind: selectedLabels(for: question).contains(option.label) ? .primary : .secondary
+                                        )
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    Button("Submit Answers") {
+                        onAnswer(QuestionPromptResponse(answers: answerMap))
+                    }
+                    .buttonStyle(IslandWideButtonStyle(kind: .primary))
+                    .disabled(!hasCompleteSelection)
+                }
+            }
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .fill(Color.white.opacity(0.04))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .strokeBorder(.white.opacity(0.06))
+        )
+    }
+
+    private var structuredQuestions: [QuestionPromptItem] {
+        prompt?.questions ?? []
+    }
+
+    private var answerMap: [String: String] {
+        Dictionary(uniqueKeysWithValues: structuredQuestions.compactMap { question in
+            let selected = selectedLabels(for: question)
+            guard !selected.isEmpty else {
+                return nil
+            }
+
+            return (question.question, selected.sorted().joined(separator: ", "))
+        })
+    }
+
+    private var hasCompleteSelection: Bool {
+        structuredQuestions.allSatisfy { !selectedLabels(for: $0).isEmpty }
+    }
+
+    private func selectedLabels(for question: QuestionPromptItem) -> Set<String> {
+        selections[question.question] ?? []
+    }
+
+    private func toggle(option: String, for question: QuestionPromptItem) {
+        var selected = selections[question.question] ?? []
+
+        if question.multiSelect {
+            if selected.contains(option) {
+                selected.remove(option)
+            } else {
+                selected.insert(option)
+            }
+        } else {
+            if selected.contains(option) {
+                selected.removeAll()
+            } else {
+                selected = [option]
+            }
+        }
+
+        selections[question.question] = selected
     }
 }
 
@@ -1388,6 +1489,30 @@ struct MenuBarContentView: View {
             } else {
                 Button("Install Codex Hooks") {
                     model.installCodexHooks()
+                }
+                .disabled(model.hooksBinaryURL == nil)
+            }
+
+            Divider()
+
+            Text(model.claudeHookStatusTitle)
+                .font(.subheadline.weight(.semibold))
+            Text(model.claudeHookStatusSummary)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            Button("Refresh Claude Hook Status") {
+                model.refreshClaudeHookStatus()
+            }
+
+            if model.claudeHooksInstalled {
+                Button("Uninstall Claude Hooks") {
+                    model.uninstallClaudeHooks()
+                }
+            } else {
+                Button("Install Claude Hooks") {
+                    model.installClaudeHooks()
                 }
                 .disabled(model.hooksBinaryURL == nil)
             }

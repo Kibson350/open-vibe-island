@@ -16,6 +16,23 @@ public final class DemoBridgeServer: @unchecked Sendable {
         let timeoutItem: DispatchWorkItem
     }
 
+    private struct PendingClaudeToolContext {
+        let toolUseID: String?
+        let toolName: String?
+        let toolInput: ClaudeHookJSONValue?
+    }
+
+    private struct PendingClaudeInteraction {
+        enum Kind {
+            case permission(ClaudeHookPayload)
+            case question(ClaudeHookPayload, QuestionPrompt)
+        }
+
+        let clientID: UUID
+        let timeoutItem: DispatchWorkItem
+        let kind: Kind
+    }
+
     private let socketURL: URL
     private let approvalTimeout: TimeInterval
     private let queue = DispatchQueue(label: "app.vibeisland.bridge.server")
@@ -25,6 +42,8 @@ public final class DemoBridgeServer: @unchecked Sendable {
     private var acceptSource: DispatchSourceRead?
     private var clients: [UUID: ClientConnection] = [:]
     private var pendingApprovals: [String: PendingApproval] = [:]
+    private var pendingClaudeToolContexts: [String: PendingClaudeToolContext] = [:]
+    private var pendingClaudeInteractions: [String: PendingClaudeInteraction] = [:]
     private var scheduledItems: [DispatchWorkItem] = []
     private var state = SessionState()
 
@@ -120,6 +139,9 @@ public final class DemoBridgeServer: @unchecked Sendable {
 
         pendingApprovals.values.forEach { $0.timeoutItem.cancel() }
         pendingApprovals.removeAll()
+        pendingClaudeInteractions.values.forEach { $0.timeoutItem.cancel() }
+        pendingClaudeInteractions.removeAll()
+        pendingClaudeToolContexts.removeAll()
 
         let activeConnections = Array(clients.values)
         activeConnections.forEach { $0.readSource.cancel() }
@@ -265,11 +287,17 @@ public final class DemoBridgeServer: @unchecked Sendable {
             )
             send(.response(.acknowledged), to: clientID)
 
-        case let .resolvePermission(sessionID, approved):
+        case let .resolvePermission(sessionID, resolution):
+            if pendingClaudeInteractions[sessionID] != nil {
+                resolvePendingClaudeInteraction(sessionID: sessionID, resolution: resolution)
+                send(.response(.acknowledged), to: clientID)
+                return
+            }
+
             let hasPendingHook = pendingApprovals[sessionID] != nil
             let event: AgentEvent
 
-            if approved {
+            if resolution.isApproved {
                 event = .activityUpdated(
                     SessionActivityUpdated(
                         sessionID: sessionID,
@@ -306,14 +334,20 @@ public final class DemoBridgeServer: @unchecked Sendable {
             }
 
             emit(event)
-            resolvePendingApproval(sessionID: sessionID, approved: approved)
+            resolvePendingApproval(sessionID: sessionID, approved: resolution.isApproved)
             send(.response(.acknowledged), to: clientID)
 
-        case let .answerQuestion(sessionID, answer):
+        case let .answerQuestion(sessionID, response):
+            if pendingClaudeInteractions[sessionID] != nil {
+                resolvePendingClaudeQuestion(sessionID: sessionID, response: response)
+                send(.response(.acknowledged), to: clientID)
+                return
+            }
+
             let resumeEvent = AgentEvent.activityUpdated(
                 SessionActivityUpdated(
                     sessionID: sessionID,
-                    summary: "Answered: \(answer)",
+                    summary: "Answered: \(response.displaySummary)",
                     phase: .running,
                     timestamp: .now
                 )
@@ -324,7 +358,7 @@ public final class DemoBridgeServer: @unchecked Sendable {
                 event: .sessionCompleted(
                     SessionCompleted(
                         sessionID: sessionID,
-                        summary: "Slow query analysis finished after targeting \(answer.lowercased()).",
+                        summary: "Slow query analysis finished after targeting \(response.displaySummary.lowercased()).",
                         timestamp: .now.addingTimeInterval(4)
                     )
                 ),
@@ -334,6 +368,9 @@ public final class DemoBridgeServer: @unchecked Sendable {
 
         case let .processCodexHook(payload):
             handleCodexHook(payload, from: clientID)
+
+        case let .processClaudeHook(payload):
+            handleClaudeHook(payload, from: clientID)
         }
     }
 
@@ -479,6 +516,315 @@ public final class DemoBridgeServer: @unchecked Sendable {
         }
     }
 
+    private func handleClaudeHook(_ payload: ClaudeHookPayload, from clientID: UUID) {
+        switch payload.hookEventName {
+        case .sessionStart:
+            emit(
+                .sessionStarted(
+                    SessionStarted(
+                        sessionID: payload.sessionID,
+                        title: payload.sessionTitle,
+                        tool: .claudeCode,
+                        origin: .live,
+                        summary: payload.implicitStartSummary,
+                        timestamp: .now,
+                        jumpTarget: payload.defaultJumpTarget,
+                        claudeMetadata: payload.defaultClaudeMetadata.isEmpty ? nil : payload.defaultClaudeMetadata
+                    )
+                )
+            )
+            send(.response(.acknowledged), to: clientID)
+
+        case .userPromptSubmit:
+            ensureClaudeSessionExists(for: payload)
+            synchronizeClaudeJumpTarget(for: payload)
+            synchronizeClaudeMetadata(for: payload)
+            emit(
+                .activityUpdated(
+                    SessionActivityUpdated(
+                        sessionID: payload.sessionID,
+                        summary: payload.promptPreview.map { "Prompt: \($0)" } ?? payload.implicitStartSummary,
+                        phase: .running,
+                        timestamp: .now
+                    )
+                )
+            )
+            send(.response(.acknowledged), to: clientID)
+
+        case .preToolUse:
+            ensureClaudeSessionExists(for: payload)
+            synchronizeClaudeJumpTarget(for: payload)
+            synchronizeClaudeMetadata(for: payload)
+            pendingClaudeToolContexts[payload.permissionCorrelationKey] = PendingClaudeToolContext(
+                toolUseID: payload.toolUseID,
+                toolName: payload.toolName,
+                toolInput: payload.toolInput
+            )
+
+            let summary = payload.toolName.map { "Running \($0)" } ?? "Running Claude tool"
+            emit(
+                .activityUpdated(
+                    SessionActivityUpdated(
+                        sessionID: payload.sessionID,
+                        summary: payload.toolInputPreview.map { "\(summary): \($0)" } ?? summary,
+                        phase: .running,
+                        timestamp: .now
+                    )
+                )
+            )
+            send(.response(.acknowledged), to: clientID)
+
+        case .permissionRequest:
+            ensureClaudeSessionExists(for: payload)
+            synchronizeClaudeJumpTarget(for: payload)
+            synchronizeClaudeMetadata(for: payload)
+
+            pendingClaudeInteractions[payload.sessionID]?.timeoutItem.cancel()
+
+            if let prompt = payload.questionPrompt {
+                emit(
+                    .questionAsked(
+                        QuestionAsked(
+                            sessionID: payload.sessionID,
+                            prompt: prompt,
+                            timestamp: .now
+                        )
+                    )
+                )
+
+                let timeoutItem = DispatchWorkItem { [weak self] in
+                    self?.resolveTimedOutClaudeQuestion(sessionID: payload.sessionID)
+                }
+
+                pendingClaudeInteractions[payload.sessionID] = PendingClaudeInteraction(
+                    clientID: clientID,
+                    timeoutItem: timeoutItem,
+                    kind: .question(payload, prompt)
+                )
+                queue.asyncAfter(deadline: .now() + approvalTimeout, execute: timeoutItem)
+            } else {
+                emit(
+                    .permissionRequested(
+                        PermissionRequested(
+                            sessionID: payload.sessionID,
+                            request: PermissionRequest(
+                                title: payload.permissionRequestTitle,
+                                summary: payload.permissionRequestSummary,
+                                affectedPath: payload.permissionAffectedPath,
+                                primaryActionTitle: "Allow Once",
+                                secondaryActionTitle: "Deny",
+                                toolName: payload.toolName,
+                                toolUseID: claudeToolUseID(for: payload),
+                                suggestedUpdates: payload.permissionSuggestions ?? []
+                            ),
+                            timestamp: .now
+                        )
+                    )
+                )
+
+                let timeoutItem = DispatchWorkItem { [weak self] in
+                    self?.resolveTimedOutClaudePermission(sessionID: payload.sessionID, payload: payload)
+                }
+
+                pendingClaudeInteractions[payload.sessionID] = PendingClaudeInteraction(
+                    clientID: clientID,
+                    timeoutItem: timeoutItem,
+                    kind: .permission(payload)
+                )
+                queue.asyncAfter(deadline: .now() + approvalTimeout, execute: timeoutItem)
+            }
+
+        case .postToolUse:
+            ensureClaudeSessionExists(for: payload)
+            synchronizeClaudeJumpTarget(for: payload)
+            synchronizeClaudeMetadata(for: payload)
+            pendingClaudeToolContexts.removeValue(forKey: payload.permissionCorrelationKey)
+
+            let summary = {
+                if payload.toolName == "AskUserQuestion" {
+                    return "Claude captured your answers."
+                }
+
+                if let preview = payload.toolResponsePreview,
+                   let toolName = payload.toolName {
+                    return "\(toolName) finished: \(preview)"
+                }
+
+                if let toolName = payload.toolName {
+                    return "\(toolName) finished."
+                }
+
+                return payload.implicitStartSummary
+            }()
+
+            emit(
+                .activityUpdated(
+                    SessionActivityUpdated(
+                        sessionID: payload.sessionID,
+                        summary: summary,
+                        phase: .running,
+                        timestamp: .now
+                    )
+                )
+            )
+            send(.response(.acknowledged), to: clientID)
+
+        case .postToolUseFailure:
+            ensureClaudeSessionExists(for: payload)
+            synchronizeClaudeJumpTarget(for: payload)
+            synchronizeClaudeMetadata(for: payload)
+            pendingClaudeToolContexts.removeValue(forKey: payload.permissionCorrelationKey)
+
+            emit(
+                .activityUpdated(
+                    SessionActivityUpdated(
+                        sessionID: payload.sessionID,
+                        summary: payload.error ?? "Claude tool failed.",
+                        phase: payload.isInterrupt == true ? .completed : .running,
+                        timestamp: .now
+                    )
+                )
+            )
+            send(.response(.acknowledged), to: clientID)
+
+        case .permissionDenied:
+            ensureClaudeSessionExists(for: payload)
+            synchronizeClaudeJumpTarget(for: payload)
+            synchronizeClaudeMetadata(for: payload)
+
+            emit(
+                .sessionCompleted(
+                    SessionCompleted(
+                        sessionID: payload.sessionID,
+                        summary: payload.error ?? "Claude permission was denied.",
+                        timestamp: .now
+                    )
+                )
+            )
+            send(.response(.acknowledged), to: clientID)
+
+        case .notification:
+            ensureClaudeSessionExists(for: payload)
+            synchronizeClaudeJumpTarget(for: payload)
+            synchronizeClaudeMetadata(for: payload)
+
+            emit(
+                .activityUpdated(
+                    SessionActivityUpdated(
+                        sessionID: payload.sessionID,
+                        summary: payload.notificationPreview ?? payload.implicitStartSummary,
+                        phase: .running,
+                        timestamp: .now
+                    )
+                )
+            )
+            send(.response(.acknowledged), to: clientID)
+
+        case .stop:
+            ensureClaudeSessionExists(for: payload)
+            synchronizeClaudeJumpTarget(for: payload)
+            synchronizeClaudeMetadata(for: payload)
+
+            emit(
+                .sessionCompleted(
+                    SessionCompleted(
+                        sessionID: payload.sessionID,
+                        summary: payload.assistantMessagePreview ?? "Claude completed the turn.",
+                        timestamp: .now
+                    )
+                )
+            )
+            send(.response(.acknowledged), to: clientID)
+
+        case .stopFailure:
+            ensureClaudeSessionExists(for: payload)
+            synchronizeClaudeJumpTarget(for: payload)
+            synchronizeClaudeMetadata(for: payload)
+
+            emit(
+                .sessionCompleted(
+                    SessionCompleted(
+                        sessionID: payload.sessionID,
+                        summary: payload.error ?? payload.assistantMessagePreview ?? "Claude failed to finish the turn.",
+                        timestamp: .now
+                    )
+                )
+            )
+            send(.response(.acknowledged), to: clientID)
+
+        case .subagentStart:
+            ensureClaudeSessionExists(for: payload)
+            synchronizeClaudeJumpTarget(for: payload)
+            synchronizeClaudeMetadata(for: payload)
+
+            let summary = payload.agentType.map { "Started \($0) subagent." } ?? "Started Claude subagent."
+            emit(
+                .activityUpdated(
+                    SessionActivityUpdated(
+                        sessionID: payload.sessionID,
+                        summary: summary,
+                        phase: .running,
+                        timestamp: .now
+                    )
+                )
+            )
+            send(.response(.acknowledged), to: clientID)
+
+        case .subagentStop:
+            ensureClaudeSessionExists(for: payload)
+            synchronizeClaudeJumpTarget(for: payload)
+            synchronizeClaudeMetadata(for: payload)
+
+            let summary = payload.assistantMessagePreview
+                ?? payload.agentType.map { "Finished \($0) subagent." }
+                ?? "Finished Claude subagent."
+            emit(
+                .activityUpdated(
+                    SessionActivityUpdated(
+                        sessionID: payload.sessionID,
+                        summary: summary,
+                        phase: .running,
+                        timestamp: .now
+                    )
+                )
+            )
+            send(.response(.acknowledged), to: clientID)
+
+        case .preCompact:
+            ensureClaudeSessionExists(for: payload)
+            synchronizeClaudeJumpTarget(for: payload)
+            synchronizeClaudeMetadata(for: payload)
+
+            emit(
+                .activityUpdated(
+                    SessionActivityUpdated(
+                        sessionID: payload.sessionID,
+                        summary: "Claude is compacting the conversation.",
+                        phase: .running,
+                        timestamp: .now
+                    )
+                )
+            )
+            send(.response(.acknowledged), to: clientID)
+
+        case .sessionEnd:
+            ensureClaudeSessionExists(for: payload)
+            synchronizeClaudeJumpTarget(for: payload)
+            synchronizeClaudeMetadata(for: payload)
+
+            emit(
+                .sessionCompleted(
+                    SessionCompleted(
+                        sessionID: payload.sessionID,
+                        summary: "Claude session ended.",
+                        timestamp: .now
+                    )
+                )
+            )
+            send(.response(.acknowledged), to: clientID)
+        }
+    }
+
     private func hasApprovalObserver(excluding clientID: UUID) -> Bool {
         if clients.values.contains(where: { $0.id != clientID && $0.role == .observer }) {
             return true
@@ -558,6 +904,77 @@ public final class DemoBridgeServer: @unchecked Sendable {
         )
     }
 
+    private func ensureClaudeSessionExists(for payload: ClaudeHookPayload) {
+        guard state.session(id: payload.sessionID) == nil else {
+            return
+        }
+
+        emit(
+            .sessionStarted(
+                SessionStarted(
+                    sessionID: payload.sessionID,
+                    title: payload.sessionTitle,
+                    tool: .claudeCode,
+                    origin: .live,
+                    summary: payload.implicitStartSummary,
+                    timestamp: .now,
+                    jumpTarget: payload.defaultJumpTarget,
+                    claudeMetadata: payload.defaultClaudeMetadata.isEmpty ? nil : payload.defaultClaudeMetadata
+                )
+            )
+        )
+    }
+
+    private func synchronizeClaudeJumpTarget(for payload: ClaudeHookPayload) {
+        guard let existingSession = state.session(id: payload.sessionID) else {
+            return
+        }
+
+        let jumpTarget = payload.defaultJumpTarget
+        guard existingSession.jumpTarget != jumpTarget else {
+            return
+        }
+
+        emit(
+            .jumpTargetUpdated(
+                JumpTargetUpdated(
+                    sessionID: payload.sessionID,
+                    jumpTarget: jumpTarget,
+                    timestamp: .now
+                )
+            )
+        )
+    }
+
+    private func synchronizeClaudeMetadata(for payload: ClaudeHookPayload) {
+        guard let existingSession = state.session(id: payload.sessionID) else {
+            return
+        }
+
+        let mergedMetadata = mergedClaudeMetadata(
+            existing: existingSession.claudeMetadata,
+            update: payload.defaultClaudeMetadata,
+            hookEventName: payload.hookEventName
+        )
+        guard !mergedMetadata.isEmpty else {
+            return
+        }
+
+        guard existingSession.claudeMetadata != mergedMetadata else {
+            return
+        }
+
+        emit(
+            .claudeSessionMetadataUpdated(
+                ClaudeSessionMetadataUpdated(
+                    sessionID: payload.sessionID,
+                    claudeMetadata: mergedMetadata,
+                    timestamp: .now
+                )
+            )
+        )
+    }
+
     private func mergedCodexMetadata(
         existing: CodexSessionMetadata?,
         update: CodexSessionMetadata,
@@ -598,6 +1015,68 @@ public final class DemoBridgeServer: @unchecked Sendable {
         }
     }
 
+    private func mergedClaudeMetadata(
+        existing: ClaudeSessionMetadata?,
+        update: ClaudeSessionMetadata,
+        hookEventName: ClaudeHookEventName
+    ) -> ClaudeSessionMetadata {
+        ClaudeSessionMetadata(
+            transcriptPath: update.transcriptPath ?? existing?.transcriptPath,
+            initialUserPrompt: existing?.initialUserPrompt ?? update.initialUserPrompt ?? update.lastUserPrompt,
+            lastUserPrompt: update.lastUserPrompt ?? existing?.lastUserPrompt,
+            lastAssistantMessage: update.lastAssistantMessage ?? existing?.lastAssistantMessage,
+            currentTool: mergedClaudeCurrentTool(
+                existing: existing?.currentTool,
+                update: update.currentTool,
+                hookEventName: hookEventName
+            ),
+            currentToolInputPreview: mergedClaudeCurrentToolInputPreview(
+                existing: existing?.currentToolInputPreview,
+                update: update.currentToolInputPreview,
+                hookEventName: hookEventName
+            ),
+            model: update.model ?? existing?.model,
+            startupSource: update.startupSource ?? existing?.startupSource,
+            permissionMode: update.permissionMode ?? existing?.permissionMode,
+            agentID: update.agentID ?? existing?.agentID,
+            agentType: update.agentType ?? existing?.agentType
+        )
+    }
+
+    private func mergedClaudeCurrentTool(
+        existing: String?,
+        update: String?,
+        hookEventName: ClaudeHookEventName
+    ) -> String? {
+        if let update {
+            return update
+        }
+
+        switch hookEventName {
+        case .postToolUse, .postToolUseFailure, .permissionDenied, .stop, .stopFailure, .sessionEnd:
+            return nil
+        case .sessionStart, .userPromptSubmit, .preToolUse, .permissionRequest, .notification, .subagentStart, .subagentStop, .preCompact:
+            return existing
+        }
+    }
+
+    private func mergedClaudeCurrentToolInputPreview(
+        existing: String?,
+        update: String?,
+        hookEventName: ClaudeHookEventName
+    ) -> String? {
+        if let update {
+            return update
+        }
+
+        switch hookEventName {
+        case .postToolUse, .postToolUseFailure, .permissionDenied, .stop, .stopFailure, .sessionEnd:
+            return nil
+        case .sessionStart, .userPromptSubmit, .preToolUse, .permissionRequest, .notification, .subagentStart, .subagentStop, .preCompact:
+            return existing
+        }
+    }
+
     private func mergedCurrentCommandPreview(
         existing: String?,
         update: String?,
@@ -632,6 +1111,118 @@ public final class DemoBridgeServer: @unchecked Sendable {
         send(.response(response), to: pendingApproval.clientID)
     }
 
+    private func resolvePendingClaudeInteraction(
+        sessionID: String,
+        resolution: PermissionResolution
+    ) {
+        guard let pendingInteraction = pendingClaudeInteractions.removeValue(forKey: sessionID) else {
+            return
+        }
+
+        pendingInteraction.timeoutItem.cancel()
+
+        let directive: ClaudeHookDirective
+        let summary: String
+        let phase: SessionPhase
+
+        switch (pendingInteraction.kind, resolution) {
+        case let (.permission(payload), .allowOnce(updatedInput, updatedPermissions)):
+            let finalInput = updatedInput ?? payload.toolInput
+            directive = .permissionRequest(
+                .allow(updatedInput: finalInput, updatedPermissions: updatedPermissions)
+            )
+            summary = payload.toolName.map { "Permission approved for \($0)." } ?? "Permission approved."
+            phase = .running
+
+        case let (.permission(_), .deny(message, interrupt)):
+            directive = .permissionRequest(
+                .deny(message: message ?? "Permission denied in Vibe Island.", interrupt: interrupt)
+            )
+            summary = message ?? "Permission denied in Vibe Island."
+            phase = .completed
+
+        case let (.question(payload, _), .allowOnce(updatedInput, updatedPermissions)):
+            let finalInput = updatedInput ?? payload.toolInput
+            directive = .permissionRequest(
+                .allow(updatedInput: finalInput, updatedPermissions: updatedPermissions)
+            )
+            summary = "Claude's questions were answered."
+            phase = .running
+
+        case let (.question(_, _), .deny(message, interrupt)):
+            directive = .permissionRequest(
+                .deny(message: message ?? "Declined to answer Claude's questions.", interrupt: interrupt)
+            )
+            summary = message ?? "Declined to answer Claude's questions."
+            phase = .completed
+        }
+
+        emit(
+            phase == .completed
+                ? .sessionCompleted(
+                    SessionCompleted(
+                        sessionID: sessionID,
+                        summary: summary,
+                        timestamp: .now
+                    )
+                )
+                : .activityUpdated(
+                    SessionActivityUpdated(
+                        sessionID: sessionID,
+                        summary: summary,
+                        phase: phase,
+                        timestamp: .now
+                    )
+                )
+        )
+
+        send(.response(.claudeHookDirective(directive)), to: pendingInteraction.clientID)
+    }
+
+    private func resolvePendingClaudeQuestion(
+        sessionID: String,
+        response: QuestionPromptResponse
+    ) {
+        guard let pendingInteraction = pendingClaudeInteractions.removeValue(forKey: sessionID) else {
+            return
+        }
+
+        pendingInteraction.timeoutItem.cancel()
+
+        guard case let .question(payload, prompt) = pendingInteraction.kind else {
+            return
+        }
+
+        let updatedInput = mergedClaudeQuestionInput(
+            payload: payload,
+            prompt: prompt,
+            response: response
+        )
+        let summary = response.displaySummary.isEmpty
+            ? "Answered Claude's questions."
+            : "Answered: \(response.displaySummary)"
+
+        emit(
+            .activityUpdated(
+                SessionActivityUpdated(
+                    sessionID: sessionID,
+                    summary: summary,
+                    phase: .running,
+                    timestamp: .now
+                )
+            )
+        )
+
+        send(
+            .response(
+                .claudeHookDirective(
+                    .permissionRequest(.allow(updatedInput: updatedInput))
+                )
+            ),
+            to: pendingInteraction.clientID
+        )
+    }
+
     private func resolveTimedOutApproval(sessionID: String, commandPreview: String) {
         guard let pendingApproval = pendingApprovals.removeValue(forKey: sessionID) else {
             return
@@ -649,6 +1240,116 @@ public final class DemoBridgeServer: @unchecked Sendable {
         )
 
         send(.response(.acknowledged), to: pendingApproval.clientID)
+    }
+
+    private func resolveTimedOutClaudePermission(
+        sessionID: String,
+        payload: ClaudeHookPayload
+    ) {
+        guard let pendingInteraction = pendingClaudeInteractions.removeValue(forKey: sessionID) else {
+            return
+        }
+
+        emit(
+            .sessionCompleted(
+                SessionCompleted(
+                    sessionID: sessionID,
+                    summary: "Permission request timed out for \(payload.toolName ?? "Claude tool").",
+                    timestamp: .now
+                )
+            )
+        )
+
+        send(
+            .response(
+                .claudeHookDirective(
+                    .permissionRequest(
+                        .deny(message: "Permission request timed out in Vibe Island.", interrupt: true)
+                    )
+                )
+            ),
+            to: pendingInteraction.clientID
+        )
+    }
+
+    private func resolveTimedOutClaudeQuestion(sessionID: String) {
+        guard let pendingInteraction = pendingClaudeInteractions.removeValue(forKey: sessionID) else {
+            return
+        }
+
+        emit(
+            .sessionCompleted(
+                SessionCompleted(
+                    sessionID: sessionID,
+                    summary: "Claude's question timed out in Vibe Island.",
+                    timestamp: .now
+                )
+            )
+        )
+
+        send(
+            .response(
+                .claudeHookDirective(
+                    .permissionRequest(
+                        .deny(message: "Claude's question timed out in Vibe Island.", interrupt: true)
+                    )
+                )
+            ),
+            to: pendingInteraction.clientID
+        )
+    }
+
+    private func claudeToolUseID(for payload: ClaudeHookPayload) -> String? {
+        payload.toolUseID ?? pendingClaudeToolContexts[payload.permissionCorrelationKey]?.toolUseID
+    }
+
+    private func mergedClaudeQuestionInput(
+        payload: ClaudeHookPayload,
+        prompt: QuestionPrompt,
+        response: QuestionPromptResponse
+    ) -> ClaudeHookJSONValue {
+        let fallbackQuestion = prompt.questions.first?.question
+
+        var answers = response.answers
+        if answers.isEmpty,
+           let rawAnswer = response.rawAnswer,
+           !rawAnswer.isEmpty,
+           let fallbackQuestion {
+            answers[fallbackQuestion] = rawAnswer
+        }
+
+        var annotationsObject: [String: ClaudeHookJSONValue] = [:]
+        for key in response.annotations.keys.sorted() {
+            guard let annotation = response.annotations[key] else {
+                continue
+            }
+
+            var object: [String: ClaudeHookJSONValue] = [:]
+            if let preview = annotation.preview, !preview.isEmpty {
+                object["preview"] = .string(preview)
+            }
+            if let notes = annotation.notes, !notes.isEmpty {
+                object["notes"] = .string(notes)
+            }
+            if !object.isEmpty {
+                annotationsObject[key] = .object(object)
+            }
+        }
+
+        guard case let .object(existingObject) = payload.toolInput else {
+            return .object([
+                "answers": .object(answers.mapValues { .string($0) }),
+                "annotations": .object(annotationsObject),
+            ])
+        }
+
+        var updatedObject = existingObject
+        updatedObject["answers"] = .object(answers.mapValues { .string($0) })
+        if !annotationsObject.isEmpty {
+            updatedObject["annotations"] = .object(annotationsObject)
+        }
+
+        return .object(updatedObject)
     }
 
     private func emit(_ event: AgentEvent) {
@@ -701,6 +1402,16 @@ public final class DemoBridgeServer: @unchecked Sendable {
         for sessionID in pendingSessionIDs {
             pendingApprovals[sessionID]?.timeoutItem.cancel()
             pendingApprovals.removeValue(forKey: sessionID)
+        }
+
+        let pendingClaudeSessionIDs = pendingClaudeInteractions.compactMap { entry -> String? in
+            let (sessionID, pendingInteraction) = entry
+            return pendingInteraction.clientID == clientID ? sessionID : nil
+        }
+
+        for sessionID in pendingClaudeSessionIDs {
+            pendingClaudeInteractions[sessionID]?.timeoutItem.cancel()
+            pendingClaudeInteractions.removeValue(forKey: sessionID)
         }
 
         client.readSource.cancel()

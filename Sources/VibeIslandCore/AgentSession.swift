@@ -104,6 +104,9 @@ public struct PermissionRequest: Equatable, Identifiable, Codable, Sendable {
     public var affectedPath: String
     public var primaryActionTitle: String
     public var secondaryActionTitle: String
+    public var toolName: String?
+    public var toolUseID: String?
+    public var suggestedUpdates: [ClaudePermissionUpdate]
 
     public init(
         id: UUID = UUID(),
@@ -111,7 +114,10 @@ public struct PermissionRequest: Equatable, Identifiable, Codable, Sendable {
         summary: String,
         affectedPath: String,
         primaryActionTitle: String = "Allow",
-        secondaryActionTitle: String = "Deny"
+        secondaryActionTitle: String = "Deny",
+        toolName: String? = nil,
+        toolUseID: String? = nil,
+        suggestedUpdates: [ClaudePermissionUpdate] = []
     ) {
         self.id = id
         self.title = title
@@ -119,6 +125,38 @@ public struct PermissionRequest: Equatable, Identifiable, Codable, Sendable {
         self.affectedPath = affectedPath
         self.primaryActionTitle = primaryActionTitle
         self.secondaryActionTitle = secondaryActionTitle
+        self.toolName = toolName
+        self.toolUseID = toolUseID
+        self.suggestedUpdates = suggestedUpdates
+    }
+}
+
+public struct QuestionOption: Equatable, Codable, Sendable {
+    public var label: String
+    public var description: String
+
+    public init(label: String, description: String = "") {
+        self.label = label
+        self.description = description
+    }
+}
+
+public struct QuestionPromptItem: Equatable, Codable, Sendable {
+    public var question: String
+    public var header: String
+    public var options: [QuestionOption]
+    public var multiSelect: Bool
+
+    public init(
+        question: String,
+        header: String,
+        options: [QuestionOption],
+        multiSelect: Bool = false
+    ) {
+        self.question = question
+        self.header = header
+        self.options = options
+        self.multiSelect = multiSelect
     }
 }
 
@@ -126,15 +164,92 @@ public struct QuestionPrompt: Equatable, Identifiable, Codable, Sendable {
     public var id: UUID
     public var title: String
     public var options: [String]
+    public var questions: [QuestionPromptItem]
 
     public init(
         id: UUID = UUID(),
         title: String,
-        options: [String]
+        options: [String],
+        questions: [QuestionPromptItem] = []
     ) {
         self.id = id
         self.title = title
         self.options = options
+        self.questions = questions
+    }
+
+    public init(
+        id: UUID = UUID(),
+        title: String,
+        questions: [QuestionPromptItem]
+    ) {
+        self.id = id
+        self.title = title
+        self.questions = questions
+        self.options = questions.first?.options.map(\.label) ?? []
+    }
+}
+
+public struct QuestionAnswerAnnotation: Equatable, Codable, Sendable {
+    public var preview: String?
+    public var notes: String?
+
+    public init(preview: String? = nil, notes: String? = nil) {
+        self.preview = preview
+        self.notes = notes
+    }
+}
+
+public struct QuestionPromptResponse: Equatable, Codable, Sendable {
+    public var rawAnswer: String?
+    public var answers: [String: String]
+    public var annotations: [String: QuestionAnswerAnnotation]
+
+    public init(
+        rawAnswer: String? = nil,
+        answers: [String: String] = [:],
+        annotations: [String: QuestionAnswerAnnotation] = [:]
+    ) {
+        self.rawAnswer = rawAnswer
+        self.answers = answers
+        self.annotations = annotations
+    }
+
+    public init(answer: String) {
+        self.init(rawAnswer: answer)
+    }
+
+    public var displaySummary: String {
+        if let rawAnswer, !rawAnswer.isEmpty {
+            return rawAnswer
+        }
+
+        let renderedAnswers = answers
+            .keys
+            .sorted()
+            .compactMap { key -> String? in
+                guard let value = answers[key], !value.isEmpty else {
+                    return nil
+                }
+
+                return "\(key): \(value)"
+            }
+
+        return renderedAnswers.joined(separator: " · ")
+    }
+}
+
+public enum PermissionResolution: Equatable, Codable, Sendable {
+    case allowOnce(updatedInput: ClaudeHookJSONValue? = nil, updatedPermissions: [ClaudePermissionUpdate] = [])
+    case deny(message: String? = nil, interrupt: Bool = false)
+
+    public var isApproved: Bool {
+        switch self {
+        case .allowOnce:
+            true
+        case .deny:
+            false
+        }
     }
 }
 
@@ -151,6 +266,7 @@ public struct AgentSession: Equatable, Identifiable, Codable, Sendable {
     public var questionPrompt: QuestionPrompt?
     public var jumpTarget: JumpTarget?
     public var codexMetadata: CodexSessionMetadata?
+    public var claudeMetadata: ClaudeSessionMetadata?
 
     public init(
         id: String,
@@ -164,7 +280,8 @@ public struct AgentSession: Equatable, Identifiable, Codable, Sendable {
         permissionRequest: PermissionRequest? = nil,
         questionPrompt: QuestionPrompt? = nil,
         jumpTarget: JumpTarget? = nil,
-        codexMetadata: CodexSessionMetadata? = nil
+        codexMetadata: CodexSessionMetadata? = nil,
+        claudeMetadata: ClaudeSessionMetadata? = nil
     ) {
         self.id = id
         self.title = title
@@ -178,6 +295,7 @@ public struct AgentSession: Equatable, Identifiable, Codable, Sendable {
         self.questionPrompt = questionPrompt
         self.jumpTarget = jumpTarget
         self.codexMetadata = codexMetadata
+        self.claudeMetadata = claudeMetadata
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -193,6 +311,7 @@ public struct AgentSession: Equatable, Identifiable, Codable, Sendable {
         case questionPrompt
         case jumpTarget
         case codexMetadata
+        case claudeMetadata
     }
 
     public init(from decoder: any Decoder) throws {
@@ -209,6 +328,7 @@ public struct AgentSession: Equatable, Identifiable, Codable, Sendable {
         questionPrompt = try container.decodeIfPresent(QuestionPrompt.self, forKey: .questionPrompt)
         jumpTarget = try container.decodeIfPresent(JumpTarget.self, forKey: .jumpTarget)
         codexMetadata = try container.decodeIfPresent(CodexSessionMetadata.self, forKey: .codexMetadata)
+        claudeMetadata = try container.decodeIfPresent(ClaudeSessionMetadata.self, forKey: .claudeMetadata)
     }
 
     public func encode(to encoder: any Encoder) throws {
@@ -225,6 +345,7 @@ public struct AgentSession: Equatable, Identifiable, Codable, Sendable {
         try container.encodeIfPresent(questionPrompt, forKey: .questionPrompt)
         try container.encodeIfPresent(jumpTarget, forKey: .jumpTarget)
         try container.encodeIfPresent(codexMetadata, forKey: .codexMetadata)
+        try container.encodeIfPresent(claudeMetadata, forKey: .claudeMetadata)
     }
 }
 
@@ -239,5 +360,29 @@ public extension AgentSession {
 
     var isAttachedToTerminal: Bool {
         attachmentState.isLive
+    }
+
+    var currentToolName: String? {
+        codexMetadata?.currentTool ?? claudeMetadata?.currentTool
+    }
+
+    var lastAssistantMessageText: String? {
+        codexMetadata?.lastAssistantMessage ?? claudeMetadata?.lastAssistantMessage
+    }
+
+    var trackingTranscriptPath: String? {
+        codexMetadata?.transcriptPath ?? claudeMetadata?.transcriptPath
+    }
+
+    var latestUserPromptText: String? {
+        codexMetadata?.lastUserPrompt ?? claudeMetadata?.lastUserPrompt
+    }
+
+    var initialUserPromptText: String? {
+        codexMetadata?.initialUserPrompt ?? claudeMetadata?.initialUserPrompt
+    }
+
+    var currentCommandPreviewText: String? {
+        codexMetadata?.currentCommandPreview ?? claudeMetadata?.currentToolInputPreview
     }
 }
