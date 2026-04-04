@@ -1102,7 +1102,7 @@ private struct IslandNotificationCard: View {
     private var completionBody: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(alignment: .top, spacing: 12) {
-                Text(session.spotlightPromptLineText ?? "You:")
+                Text(completionPromptLabel)
                     .font(.system(size: 12.5, weight: .semibold))
                     .foregroundStyle(.white.opacity(0.8))
                     .lineLimit(2)
@@ -1174,6 +1174,13 @@ private struct IslandNotificationCard: View {
 
     private var completionAccent: Color {
         Color(red: 0.29, green: 0.86, blue: 0.46)
+    }
+
+    private var completionPromptLabel: String {
+        if let prompt = session.latestUserPromptText?.trimmedForNotificationCard, !prompt.isEmpty {
+            return "You: \(prompt)"
+        }
+        return "You:"
     }
 
     private var completionMessageText: String {
