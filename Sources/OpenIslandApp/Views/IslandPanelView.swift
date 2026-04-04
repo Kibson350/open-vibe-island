@@ -29,7 +29,6 @@ struct IslandPanelView: View {
 
     @Namespace private var notchNamespace
     @State private var isHovering = false
-    @State private var hoveredSessionID: String?
 
     private var isOpened: Bool {
         model.notchStatus == .opened
@@ -372,10 +371,6 @@ struct IslandPanelView: View {
                         IslandSessionRow(
                             session: session,
                             referenceDate: context.date,
-                            isHighlighted: session.id == hoveredSessionID,
-                            onHoverChange: { isHovering in
-                                hoveredSessionID = isHovering ? session.id : (hoveredSessionID == session.id ? nil : hoveredSessionID)
-                            },
                             onJump: { model.jumpToSession(session) }
                         )
                     }
@@ -830,9 +825,9 @@ private struct OpenedHeaderMetrics {
 private struct IslandSessionRow: View {
     let session: AgentSession
     let referenceDate: Date
-    let isHighlighted: Bool
-    let onHoverChange: (Bool) -> Void
     let onJump: () -> Void
+
+    @State private var isHighlighted = false
 
     var body: some View {
         rowBody(referenceDate: referenceDate)
@@ -889,7 +884,7 @@ private struct IslandSessionRow: View {
             RoundedRectangle(cornerRadius: 22, style: .continuous)
                 .strokeBorder(isHighlighted ? .white.opacity(0.24) : .white.opacity(0.04))
         )
-        .shadow(color: isHighlighted ? .black.opacity(0.24) : .clear, radius: 12, y: 8)
+        .shadow(color: isHighlighted ? .black.opacity(0.24) : .clear, radius: 8, y: 6)
         .overlay(
             Rectangle()
                 .fill(Color.white.opacity(isHighlighted ? 0 : 0.02))
@@ -898,7 +893,9 @@ private struct IslandSessionRow: View {
         )
         .contentShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
         .onTapGesture(perform: handlePrimaryTap)
-        .onHover(perform: onHoverChange)
+        .onHover { hovering in
+            isHighlighted = hovering
+        }
     }
 
     private func statusDot(for presence: IslandSessionPresence) -> some View {
