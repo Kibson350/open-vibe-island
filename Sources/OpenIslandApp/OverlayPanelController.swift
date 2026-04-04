@@ -166,9 +166,9 @@ final class OverlayPanelController {
     private func panelAnimationDuration(for status: NotchStatus?) -> TimeInterval {
         switch status {
         case .opened:
-            0.34
+            0.36
         case .closed, .popping:
-            0.26
+            0.30
         case nil:
             0
         }

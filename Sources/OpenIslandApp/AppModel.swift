@@ -94,6 +94,9 @@ final class AppModel {
     var disablesOverlayEventMonitoringDuringHarness = false
 
     @ObservationIgnored
+    private var overlayTransitionGeneration: UInt64 = 0
+
+    @ObservationIgnored
     private var bridgeTask: Task<Void, Never>?
 
     @ObservationIgnored
@@ -627,32 +630,79 @@ final class AppModel {
     }
 
     func notchOpen(reason: NotchOpenReason, surface: IslandSurface = .sessionList) {
-        islandSurface = surface
-        notchOpenReason = reason
-        notchStatus = .opened
-        autoCollapseSurfaceHasBeenEntered = false
-        updateNotificationAutoCollapse()
-
-        overlayPlacementDiagnostics = overlayPanelController.show(
-            model: self,
-            preferredScreenID: preferredOverlayScreenID
+        transitionOverlay(
+            to: .opened,
+            reason: reason,
+            surface: surface,
+            interactive: true,
+            beforeTransition: nil,
+            afterStateChange: { [weak self] in
+                guard let self else { return }
+                self.autoCollapseSurfaceHasBeenEntered = false
+                self.updateNotificationAutoCollapse()
+            },
+            onPlacementResolved: { [weak self] in
+                guard let self, let overlayPlacementDiagnostics else { return }
+                self.lastActionMessage = "Overlay showing on \(overlayPlacementDiagnostics.targetScreenName) as \(overlayPlacementDiagnostics.modeDescription.lowercased())."
+            }
         )
-        overlayPanelController.setInteractive(true)
-
-        if let overlayPlacementDiagnostics {
-            lastActionMessage = "Overlay showing on \(overlayPlacementDiagnostics.targetScreenName) as \(overlayPlacementDiagnostics.modeDescription.lowercased())."
-        }
     }
 
     func notchClose() {
-        notchStatus = .closed
-        notchOpenReason = nil
-        islandSurface = .sessionList
-        autoCollapseSurfaceHasBeenEntered = false
-        notificationAutoCollapseTask?.cancel()
-        notificationAutoCollapseTask = nil
-        overlayPanelController.setInteractive(false)
-        refreshOverlayPlacement()
+        transitionOverlay(
+            to: .closed,
+            reason: nil,
+            surface: .sessionList,
+            interactive: false,
+            beforeTransition: { [weak self] in
+                self?.notificationAutoCollapseTask?.cancel()
+                self?.notificationAutoCollapseTask = nil
+            },
+            afterStateChange: { [weak self] in
+                self?.autoCollapseSurfaceHasBeenEntered = false
+            }
+        )
+    }
+
+    /// Coordinates overlay transitions so SwiftUI re-renders complete before AppKit
+    /// animates the panel frame, preventing main-thread contention.
+    ///
+    /// Phase 1 (current frame): Mutates @Observable state → SwiftUI re-renders.
+    /// Phase 2 (next run-loop iteration): Resizes/repositions the NSPanel via AppKit animation.
+    private func transitionOverlay(
+        to status: NotchStatus,
+        reason: NotchOpenReason?,
+        surface: IslandSurface,
+        interactive: Bool,
+        beforeTransition: (() -> Void)?,
+        afterStateChange: (() -> Void)? = nil,
+        onPlacementResolved: (() -> Void)? = nil
+    ) {
+        beforeTransition?()
+
+        // Phase 1: State mutation (drives SwiftUI re-render this frame).
+        islandSurface = surface
+        notchOpenReason = reason
+        notchStatus = status
+        overlayPanelController.setInteractive(interactive)
+        afterStateChange?()
+
+        // Phase 2: AppKit panel frame animation (deferred to next run-loop iteration).
+        overlayTransitionGeneration &+= 1
+        let capturedGeneration = overlayTransitionGeneration
+        DispatchQueue.main.async { [weak self] in
+            guard let self, self.overlayTransitionGeneration == capturedGeneration else { return }
+            switch status {
+            case .opened:
+                self.overlayPlacementDiagnostics = self.overlayPanelController.show(
+                    model: self,
+                    preferredScreenID: self.preferredOverlayScreenID
+                )
+            case .closed, .popping:
+                self.refreshOverlayPlacement()
+            }
+            onPlacementResolved?()
+        }
     }
 
     func notchPop() {
@@ -758,18 +808,25 @@ final class AppModel {
             return
         }
 
-        switch snapshot.notchStatus {
-        case .opened:
-            overlayPlacementDiagnostics = overlayPanelController.show(
-                model: self,
-                preferredScreenID: preferredOverlayScreenID
-            )
-            overlayPanelController.setInteractive(true)
-            harnessRuntimeMonitor?.recordMilestone("overlayPresented", message: snapshot.title)
-        case .closed, .popping:
-            overlayPanelController.setInteractive(false)
-            refreshOverlayPlacement()
-            harnessRuntimeMonitor?.recordMilestone("overlayPresented", message: snapshot.title)
+        // Immediate interactivity update.
+        let interactive = snapshot.notchStatus == .opened
+        overlayPanelController.setInteractive(interactive)
+
+        // Defer AppKit panel animation to the next run-loop iteration.
+        overlayTransitionGeneration &+= 1
+        let capturedGeneration = overlayTransitionGeneration
+        DispatchQueue.main.async { [weak self] in
+            guard let self, self.overlayTransitionGeneration == capturedGeneration else { return }
+            switch snapshot.notchStatus {
+            case .opened:
+                self.overlayPlacementDiagnostics = self.overlayPanelController.show(
+                    model: self,
+                    preferredScreenID: self.preferredOverlayScreenID
+                )
+            case .closed, .popping:
+                self.refreshOverlayPlacement()
+            }
+            self.harnessRuntimeMonitor?.recordMilestone("overlayPresented", message: snapshot.title)
         }
     }
 
