@@ -772,7 +772,14 @@ public final class DemoBridgeServer: @unchecked Sendable {
             return
         }
 
-        let jumpTarget = payload.defaultJumpTarget
+        var jumpTarget = payload.defaultJumpTarget
+
+        if jumpTarget.terminalSessionID == nil,
+           let existingID = existingSession.jumpTarget?.terminalSessionID,
+           !existingID.isEmpty {
+            jumpTarget.terminalSessionID = existingID
+        }
+
         guard existingSession.jumpTarget != jumpTarget else {
             return
         }
@@ -843,7 +850,18 @@ public final class DemoBridgeServer: @unchecked Sendable {
             return
         }
 
-        let jumpTarget = payload.defaultJumpTarget
+        var jumpTarget = payload.defaultJumpTarget
+
+        // Preserve an existing Ghostty terminal session ID when the incoming
+        // payload doesn't carry one.  Only SessionStart hooks query the
+        // Ghostty focused-terminal locator; later hooks clear the field to
+        // avoid capturing the wrong terminal if the user switched tabs.
+        if jumpTarget.terminalSessionID == nil,
+           let existingID = existingSession.jumpTarget?.terminalSessionID,
+           !existingID.isEmpty {
+            jumpTarget.terminalSessionID = existingID
+        }
+
         guard existingSession.jumpTarget != jumpTarget else {
             return
         }

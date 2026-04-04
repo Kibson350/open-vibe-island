@@ -660,8 +660,8 @@ struct SessionStateTests {
     }
 
     @Test
-    func codexGhosttyRuntimeContextDoesNotTrustFocusedTerminalLocator() {
-        let payload = CodexHookPayload(
+    func codexGhosttySessionStartUsesLocatorButLaterHooksClear() {
+        let startPayload = CodexHookPayload(
             cwd: "/tmp/worktree",
             hookEventName: .sessionStart,
             model: "gpt-5-codex",
@@ -670,22 +670,40 @@ struct SessionStateTests {
             transcriptPath: nil
         )
 
-        let inferredGhostty = payload.withRuntimeContext(
+        let atStart = startPayload.withRuntimeContext(
             environment: ["TERM_PROGRAM": "ghostty"],
             currentTTYProvider: { "/dev/ttys022" },
             terminalLocatorProvider: { _ in
-                (
-                    sessionID: "ghostty-frontmost",
-                    tty: nil,
-                    title: "codex ~/tmp/other-worktree"
-                )
+                (sessionID: "ghostty-frontmost", tty: nil, title: "codex ~/tmp/other-worktree")
             }
         )
 
-        #expect(inferredGhostty.terminalApp == "Ghostty")
-        #expect(inferredGhostty.terminalTTY == "/dev/ttys022")
-        #expect(inferredGhostty.terminalSessionID == nil)
-        #expect(inferredGhostty.terminalTitle == nil)
+        #expect(atStart.terminalApp == "Ghostty")
+        #expect(atStart.terminalTTY == "/dev/ttys022")
+        #expect(atStart.terminalSessionID == "ghostty-frontmost")
+        #expect(atStart.terminalTitle == "codex ~/tmp/other-worktree")
+
+        let laterPayload = CodexHookPayload(
+            cwd: "/tmp/worktree",
+            hookEventName: .preToolUse,
+            model: "gpt-5-codex",
+            permissionMode: .default,
+            sessionID: "session-1",
+            transcriptPath: nil
+        )
+
+        let atLater = laterPayload.withRuntimeContext(
+            environment: ["TERM_PROGRAM": "ghostty"],
+            currentTTYProvider: { "/dev/ttys022" },
+            terminalLocatorProvider: { _ in
+                (sessionID: "ghostty-wrong", tty: nil, title: "wrong title")
+            }
+        )
+
+        #expect(atLater.terminalApp == "Ghostty")
+        #expect(atLater.terminalTTY == "/dev/ttys022")
+        #expect(atLater.terminalSessionID == nil)
+        #expect(atLater.terminalTitle == nil)
     }
 
     @Test
