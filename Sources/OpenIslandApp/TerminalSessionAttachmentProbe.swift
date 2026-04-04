@@ -925,8 +925,7 @@ struct TerminalSessionAttachmentProbe {
             return false
         }
 
-        return session.phase == .running
-            || session.phase.requiresAttention
+        return session.origin == .live
             || session.currentToolName?.isEmpty == false
     }
 
