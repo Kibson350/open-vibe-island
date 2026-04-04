@@ -15,19 +15,22 @@ struct ActiveAgentProcessDiscovery {
         var workingDirectory: String?
         var terminalTTY: String?
         var terminalApp: String?
+        var transcriptPath: String?
 
         init(
             tool: AgentTool,
             sessionID: String?,
             workingDirectory: String?,
             terminalTTY: String?,
-            terminalApp: String? = nil
+            terminalApp: String? = nil,
+            transcriptPath: String? = nil
         ) {
             self.tool = tool
             self.sessionID = sessionID
             self.workingDirectory = workingDirectory
             self.terminalTTY = terminalTTY
             self.terminalApp = terminalApp
+            self.transcriptPath = transcriptPath
         }
     }
 
@@ -163,7 +166,8 @@ struct ActiveAgentProcessDiscovery {
             sessionID: sessionID,
             workingDirectory: workingDirectory,
             terminalTTY: process.terminalTTY,
-            terminalApp: terminalApp(for: process, processesByPID: processesByPID)
+            terminalApp: terminalApp(for: process, processesByPID: processesByPID),
+            transcriptPath: transcriptPath
         )
     }
 

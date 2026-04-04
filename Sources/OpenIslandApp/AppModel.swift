@@ -1406,12 +1406,28 @@ final class AppModel {
         for discovered in discoveredSessions {
             if let existing = mergedByID[discovered.id] {
                 mergedByID[discovered.id] = merge(discovered: discovered, into: existing)
+            } else if let existingID = existingSessionID(matchingTranscriptOf: discovered, in: mergedByID) {
+                mergedByID[existingID] = merge(discovered: discovered, into: mergedByID[existingID]!)
             } else {
                 mergedByID[discovered.id] = discovered
             }
         }
 
         return Array(mergedByID.values)
+    }
+
+    private func existingSessionID(
+        matchingTranscriptOf discovered: AgentSession,
+        in sessions: [String: AgentSession]
+    ) -> String? {
+        guard let discoveredPath = discovered.claudeMetadata?.transcriptPath,
+              !discoveredPath.isEmpty else {
+            return nil
+        }
+
+        return sessions.first(where: {
+            $0.value.claudeMetadata?.transcriptPath == discoveredPath
+        })?.key
     }
 
     private func merge(discovered: AgentSession, into existing: AgentSession) -> AgentSession {
@@ -1482,7 +1498,8 @@ final class AppModel {
             startupSource: discovered.startupSource ?? existing.startupSource,
             permissionMode: discovered.permissionMode ?? existing.permissionMode,
             agentID: discovered.agentID ?? existing.agentID,
-            agentType: discovered.agentType ?? existing.agentType
+            agentType: discovered.agentType ?? existing.agentType,
+            worktreeBranch: discovered.worktreeBranch ?? existing.worktreeBranch
         )
         return merged.isEmpty ? nil : merged
     }
@@ -1841,9 +1858,7 @@ final class AppModel {
         now: Date
     ) -> AgentSession {
         let workingDirectory = process.workingDirectory
-        let workspaceName = workingDirectory.map { URL(fileURLWithPath: $0).lastPathComponent }.flatMap { value in
-            value.isEmpty ? nil : value
-        } ?? "Workspace"
+        let workspaceName = workingDirectory.map { WorkspaceNameResolver.workspaceName(for: $0) } ?? "Workspace"
         let terminalApp = supportedTerminalApp(for: process.terminalApp) ?? "Unknown"
         let identity = processIdentityKey(process)
 
@@ -1890,6 +1905,21 @@ final class AppModel {
             }
 
             representedProcessKeys.insert(processIdentityKey(process))
+            claimedSessionIDs.insert(matchedSession.id)
+        }
+
+        for process in activeProcesses {
+            let processKey = processIdentityKey(process)
+            guard !representedProcessKeys.contains(processKey),
+                  let transcriptPath = process.transcriptPath,
+                  let matchedSession = trackedClaudeSessions.first(where: {
+                      !claimedSessionIDs.contains($0.id)
+                          && $0.claudeMetadata?.transcriptPath == transcriptPath
+                  }) else {
+                continue
+            }
+
+            representedProcessKeys.insert(processKey)
             claimedSessionIDs.insert(matchedSession.id)
         }
 

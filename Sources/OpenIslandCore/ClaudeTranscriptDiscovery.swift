@@ -156,9 +156,7 @@ public final class ClaudeTranscriptDiscovery: @unchecked Sendable {
             return nil
         }
 
-        let workspaceName = URL(fileURLWithPath: cwd).lastPathComponent.isEmpty
-            ? "Workspace"
-            : URL(fileURLWithPath: cwd).lastPathComponent
+        let workspaceName = WorkspaceNameResolver.workspaceName(for: cwd)
         let metadata = ClaudeSessionMetadata(
             transcriptPath: fileURL.path,
             initialUserPrompt: initialUserPrompt,

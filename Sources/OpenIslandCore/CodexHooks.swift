@@ -248,8 +248,11 @@ public enum CodexHookOutputEncoder {
 
 public extension CodexHookPayload {
     var workspaceName: String {
-        let workspace = URL(fileURLWithPath: cwd).lastPathComponent
-        return workspace.isEmpty ? "Workspace" : workspace
+        WorkspaceNameResolver.workspaceName(for: cwd)
+    }
+
+    var worktreeBranch: String? {
+        WorkspaceNameResolver.worktreeBranch(for: cwd)
     }
 
     var sessionTitle: String {

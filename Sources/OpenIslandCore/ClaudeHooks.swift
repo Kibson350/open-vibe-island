@@ -149,6 +149,7 @@ public struct ClaudeSessionMetadata: Equatable, Codable, Sendable {
     public var permissionMode: ClaudePermissionMode?
     public var agentID: String?
     public var agentType: String?
+    public var worktreeBranch: String?
 
     public init(
         transcriptPath: String? = nil,
@@ -161,7 +162,8 @@ public struct ClaudeSessionMetadata: Equatable, Codable, Sendable {
         startupSource: ClaudeSessionStartSource? = nil,
         permissionMode: ClaudePermissionMode? = nil,
         agentID: String? = nil,
-        agentType: String? = nil
+        agentType: String? = nil,
+        worktreeBranch: String? = nil
     ) {
         self.transcriptPath = transcriptPath
         self.initialUserPrompt = initialUserPrompt
@@ -174,6 +176,7 @@ public struct ClaudeSessionMetadata: Equatable, Codable, Sendable {
         self.permissionMode = permissionMode
         self.agentID = agentID
         self.agentType = agentType
+        self.worktreeBranch = worktreeBranch
     }
 
     public var isEmpty: Bool {
@@ -188,6 +191,7 @@ public struct ClaudeSessionMetadata: Equatable, Codable, Sendable {
             && permissionMode == nil
             && agentID == nil
             && agentType == nil
+            && worktreeBranch == nil
     }
 }
 
@@ -532,8 +536,11 @@ public enum ClaudeHookOutputEncoder {
 
 public extension ClaudeHookPayload {
     var workspaceName: String {
-        let workspace = URL(fileURLWithPath: cwd).lastPathComponent
-        return workspace.isEmpty ? "Workspace" : workspace
+        WorkspaceNameResolver.workspaceName(for: cwd)
+    }
+
+    var worktreeBranch: String? {
+        WorkspaceNameResolver.worktreeBranch(for: cwd)
     }
 
     var sessionTitle: String {
@@ -554,16 +561,17 @@ public extension ClaudeHookPayload {
     var defaultClaudeMetadata: ClaudeSessionMetadata {
         ClaudeSessionMetadata(
             transcriptPath: transcriptPath ?? agentTranscriptPath,
-            initialUserPrompt: promptPreview,
-            lastUserPrompt: promptPreview,
-            lastAssistantMessage: assistantMessagePreview,
+            initialUserPrompt: prompt ?? promptPreview,
+            lastUserPrompt: prompt ?? promptPreview,
+            lastAssistantMessage: lastAssistantMessage ?? assistantMessagePreview,
             currentTool: toolName,
             currentToolInputPreview: toolInputPreview,
             model: model,
             startupSource: source,
             permissionMode: permissionMode,
             agentID: agentID,
-            agentType: agentType
+            agentType: agentType,
+            worktreeBranch: worktreeBranch
         )
     }
 

@@ -615,9 +615,15 @@ public final class DemoBridgeServer: @unchecked Sendable {
             synchronizeClaudeJumpTarget(for: payload)
             synchronizeClaudeMetadata(for: payload)
 
-            let notificationPhase: SessionPhase = payload.notificationType == "idle_prompt"
-                ? .completed
-                : .running
+            let currentPhase = state.session(id: payload.sessionID)?.phase
+            let notificationPhase: SessionPhase
+            if payload.notificationType == "idle_prompt" {
+                notificationPhase = .completed
+            } else if currentPhase == .completed {
+                notificationPhase = .completed
+            } else {
+                notificationPhase = .running
+            }
 
             emit(
                 .activityUpdated(
@@ -640,7 +646,7 @@ public final class DemoBridgeServer: @unchecked Sendable {
                 .sessionCompleted(
                     SessionCompleted(
                         sessionID: payload.sessionID,
-                        summary: payload.assistantMessagePreview ?? "Claude completed the turn.",
+                        summary: payload.lastAssistantMessage ?? payload.assistantMessagePreview ?? "Claude completed the turn.",
                         timestamp: .now,
                         isInterrupt: payload.isInterrupt
                     )
@@ -657,7 +663,7 @@ public final class DemoBridgeServer: @unchecked Sendable {
                 .sessionCompleted(
                     SessionCompleted(
                         sessionID: payload.sessionID,
-                        summary: payload.error ?? payload.assistantMessagePreview ?? "Claude failed to finish the turn.",
+                        summary: payload.error ?? payload.lastAssistantMessage ?? payload.assistantMessagePreview ?? "Claude failed to finish the turn.",
                         timestamp: .now,
                         isInterrupt: payload.isInterrupt
                     )
@@ -946,7 +952,8 @@ public final class DemoBridgeServer: @unchecked Sendable {
             startupSource: update.startupSource ?? existing?.startupSource,
             permissionMode: update.permissionMode ?? existing?.permissionMode,
             agentID: update.agentID ?? existing?.agentID,
-            agentType: update.agentType ?? existing?.agentType
+            agentType: update.agentType ?? existing?.agentType,
+            worktreeBranch: update.worktreeBranch ?? existing?.worktreeBranch
         )
     }
 

@@ -123,12 +123,22 @@ extension AgentSession {
         return trimmedTitle
     }
 
+    var spotlightWorktreeBranch: String? {
+        claudeMetadata?.worktreeBranch
+    }
+
     var spotlightHeadlineText: String {
-        guard let prompt = spotlightHeadlinePromptText else {
-            return spotlightWorkspaceName
+        var headline = spotlightWorkspaceName
+
+        if let branch = spotlightWorktreeBranch {
+            headline += " (\(branch))"
         }
 
-        return "\(spotlightWorkspaceName) · \(prompt)"
+        guard let prompt = spotlightHeadlinePromptText else {
+            return headline
+        }
+
+        return "\(headline) · \(prompt)"
     }
 
     var spotlightHeadlinePromptText: String? {
