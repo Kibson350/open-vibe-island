@@ -15,6 +15,7 @@ This index is the repository map for humans and coding agents. Read these files 
 ## Testing
 
 - [docs/manual-test-plan.md](./manual-test-plan.md) for the manual test checklist covering overlay, sessions, hooks, and jump targets
+- [docs/hooks.md](./hooks.md) for the supported hook events, payload fields, and directive response protocol
 
 ## Harness And Planning
 
