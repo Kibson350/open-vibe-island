@@ -2,6 +2,54 @@ import SwiftUI
 @preconcurrency import MarkdownUI
 import OpenIslandCore
 
+private struct NotificationContentHeightKey: PreferenceKey {
+    static let defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = max(value, nextValue())
+    }
+}
+
+private struct ContentHeightKey: PreferenceKey {
+    static let defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = max(value, nextValue())
+    }
+}
+
+/// Auto-height container: renders content directly (auto-sizing).
+/// When content exceeds maxHeight, wraps in ScrollView at fixed maxHeight.
+private struct AutoHeightScrollView<Content: View>: View {
+    let maxHeight: CGFloat
+    @ViewBuilder let content: () -> Content
+    @State private var contentHeight: CGFloat = 0
+
+    var body: some View {
+        if contentHeight > maxHeight {
+            // Exceeds max → fixed height, scrollable
+            ScrollView(.vertical) {
+                measuredContent
+            }
+            .scrollIndicators(.automatic)
+            .frame(height: maxHeight)
+        } else {
+            // Fits within max → direct render, auto-height
+            measuredContent
+        }
+    }
+
+    private var measuredContent: some View {
+        content()
+            .background(
+                GeometryReader { geo in
+                    Color.clear.preference(key: ContentHeightKey.self, value: geo.size.height)
+                }
+            )
+            .onPreferenceChange(ContentHeightKey.self) { height in
+                if height > 0 { contentHeight = height }
+            }
+    }
+}
+
 // MARK: - Row Height Estimation
 
 extension AgentSession {
@@ -1174,12 +1222,13 @@ private struct IslandSessionRow: View {
                 .fill(.white.opacity(0.04))
                 .frame(height: 1)
 
-            Markdown(completionMessageText)
-                .markdownTheme(.completionCard)
-                .frame(maxWidth: .infinity, alignment: .topLeading)
-                .padding(.horizontal, 14)
-                .padding(.vertical, 14)
-                .frame(maxHeight: 260)
+            AutoHeightScrollView(maxHeight: 260) {
+                Markdown(completionMessageText)
+                    .markdownTheme(.completionCard)
+                    .frame(maxWidth: .infinity, alignment: .topLeading)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 10)
+            }
         }
         .background(
             RoundedRectangle(cornerRadius: 18, style: .continuous)

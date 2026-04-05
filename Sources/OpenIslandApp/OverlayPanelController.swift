@@ -454,15 +454,13 @@ final class OverlayPanelController {
         let isNotificationMode = model.notchOpenReason == .notification && actionableID != nil
 
         if isNotificationMode {
-            // Notification mode: only the actionable session + footer
-            guard let session = model.activeIslandCardSession else {
-                return Self.openedEmptyStateHeight
+            // Use SwiftUI-measured height when available (accurate after first render).
+            if model.measuredNotificationContentHeight > 0 {
+                return model.measuredNotificationContentHeight + 8
             }
-            let rowHeight = session.estimatedIslandRowHeight(at: now)
-                + actionableBodyHeight(for: session, model: model)
-            let footerHeight: CGFloat = model.allSessions.count > 1 ? 28 : 0
-            // Notification mode has no header controls, so use tighter insets
-            return rowHeight + footerHeight + 12
+            // First render: use generous height so content isn't clipped.
+            // SwiftUI will measure actual height and trigger a resize.
+            return 500
         }
 
         let rowHeights = visibleSessions.map { session -> CGFloat in
@@ -494,7 +492,6 @@ final class OverlayPanelController {
 
     /// Height of the inline completion expansion area (not the old full-card height).
     private func completionBodyHeight(for session: AgentSession) -> CGFloat {
-        // Header: "You: ..." + "完成" badge with padding (12 top + 12 bottom + ~20 text)
         let headerHeight: CGFloat = 44
 
         let text = (session.lastAssistantMessageText ?? session.summary)
@@ -504,7 +501,6 @@ final class OverlayPanelController {
             return headerHeight
         }
 
-        // Divider (1) + markdown text + padding (10 top + 10 bottom)
         let availableWidth = Self.preferredNotificationPanelWidth - 96
         let font = NSFont.systemFont(ofSize: 13.5, weight: .medium)
         let textSize = (text as NSString).boundingRect(
@@ -642,6 +638,25 @@ final class NotchHostingView<Content: View>: NSHostingView<Content> {
     private func configureTransparency() {
         wantsLayer = true
         layer?.backgroundColor = NSColor.clear.cgColor
+    }
+
+    override func layout() {
+        super.layout()
+        // NSHostingView wraps content in an internal NSScrollView.
+        // Disable its scrollers to prevent a thick system scrollbar.
+        disableInternalScrollers(in: self)
+    }
+
+    private func disableInternalScrollers(in view: NSView) {
+        if let scrollView = view as? NSScrollView {
+            scrollView.hasVerticalScroller = false
+            scrollView.hasHorizontalScroller = false
+            scrollView.scrollerStyle = .overlay
+            return
+        }
+        for child in view.subviews {
+            disableInternalScrollers(in: child)
+        }
     }
 }
 
