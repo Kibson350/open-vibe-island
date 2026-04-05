@@ -50,9 +50,10 @@ final class AppModel {
     var notchOpenReason: NotchOpenReason?
     var islandSurface: IslandSurface = .sessionList
     var isOverlayVisible: Bool { notchStatus != .closed }
-    var isCodexSetupBusy = false
-    var isClaudeHookSetupBusy = false
-    var isClaudeUsageSetupBusy = false
+    let hooks = HookInstallationCoordinator()
+    var isCodexSetupBusy: Bool { hooks.isCodexSetupBusy }
+    var isClaudeHookSetupBusy: Bool { hooks.isClaudeHookSetupBusy }
+    var isClaudeUsageSetupBusy: Bool { hooks.isClaudeUsageSetupBusy }
     var isBridgeReady = false
     var lastActionMessage = "Waiting for agent hook events..." {
         didSet {
@@ -63,12 +64,12 @@ final class AppModel {
             harnessRuntimeMonitor?.recordLog(lastActionMessage)
         }
     }
-    var codexHookStatus: CodexHookInstallationStatus?
-    var claudeHookStatus: ClaudeHookInstallationStatus?
-    var claudeStatusLineStatus: ClaudeStatusLineInstallationStatus?
-    var claudeUsageSnapshot: ClaudeUsageSnapshot?
-    var codexUsageSnapshot: CodexUsageSnapshot?
-    var hooksBinaryURL: URL?
+    var codexHookStatus: CodexHookInstallationStatus? { hooks.codexHookStatus }
+    var claudeHookStatus: ClaudeHookInstallationStatus? { hooks.claudeHookStatus }
+    var claudeStatusLineStatus: ClaudeStatusLineInstallationStatus? { hooks.claudeStatusLineStatus }
+    var claudeUsageSnapshot: ClaudeUsageSnapshot? { hooks.claudeUsageSnapshot }
+    var codexUsageSnapshot: CodexUsageSnapshot? { hooks.codexUsageSnapshot }
+    var hooksBinaryURL: URL? { hooks.hooksBinaryURL }
     var isResolvingInitialLiveSessions = false
     var overlayDisplayOptions: [OverlayDisplayOption] = []
     var overlayPlacementDiagnostics: OverlayPlacementDiagnostics?
@@ -125,15 +126,6 @@ final class AppModel {
     private let bridgeClient = LocalBridgeClient()
 
     @ObservationIgnored
-    private let codexHookInstallationManager = CodexHookInstallationManager()
-
-    @ObservationIgnored
-    private let claudeHookInstallationManager = ClaudeHookInstallationManager()
-
-    @ObservationIgnored
-    private let claudeStatusLineInstallationManager = ClaudeStatusLineInstallationManager()
-
-    @ObservationIgnored
     private let terminalJumpAction: @Sendable (JumpTarget) throws -> String
 
     @ObservationIgnored
@@ -173,16 +165,10 @@ final class AppModel {
     private var sessionAttachmentMonitorTask: Task<Void, Never>?
 
     @ObservationIgnored
-    private var claudeUsageMonitorTask: Task<Void, Never>?
-
-    @ObservationIgnored
     private var notificationAutoCollapseTask: Task<Void, Never>?
 
     @ObservationIgnored
     private var autoCollapseSurfaceHasBeenEntered = false
-
-    @ObservationIgnored
-    private var codexUsageMonitorTask: Task<Void, Never>?
 
     @ObservationIgnored
     private var jumpTask: Task<Void, Never>?
@@ -198,6 +184,10 @@ final class AppModel {
         ) ?? OverlayDisplayOption.automaticID
         isSoundMuted = UserDefaults.standard.bool(forKey: Self.soundMutedDefaultsKey)
         selectedSoundName = NotificationSoundService.selectedSoundName
+
+        hooks.onStatusMessage = { [weak self] message in
+            self?.lastActionMessage = message
+        }
 
         codexRolloutWatcher.eventHandler = { [weak self] event in
             Task { @MainActor [weak self] in
@@ -250,178 +240,19 @@ final class AppModel {
             && state.sessions.contains(where: \.isTrackedLiveSession)
     }
 
-    var codexHooksInstalled: Bool {
-        codexHookStatus?.managedHooksPresent == true
-    }
-
-    var claudeHooksInstalled: Bool {
-        claudeHookStatus?.managedHooksPresent == true
-    }
-
-    var claudeUsageInstalled: Bool {
-        claudeStatusLineStatus?.managedStatusLineInstalled == true
-    }
-
-    var claudeHookStatusTitle: String {
-        if claudeHooksInstalled {
-            return "Claude hooks installed"
-        }
-
-        if hooksBinaryURL == nil {
-            return "Hook binary not found"
-        }
-
-        return "Claude hooks not installed"
-    }
-
-    var claudeHookStatusSummary: String {
-        guard let status = claudeHookStatus else {
-            return "Reading ~/.claude/settings.json."
-        }
-
-        if claudeHooksInstalled {
-            if status.hasClaudeIslandHooks {
-                return "managed hooks present · claude-island hooks also detected"
-            }
-            return "managed hooks present"
-        }
-
-        if hooksBinaryURL == nil {
-            return "Build OpenIslandHooks before installing."
-        }
-
-        if status.hasClaudeIslandHooks {
-            return "claude-island hooks detected · managed hooks absent"
-        }
-
-        return "no managed Claude hooks"
-    }
-
-    var claudeUsageStatusTitle: String {
-        guard let status = claudeStatusLineStatus else {
-            return "Claude usage status unavailable"
-        }
-
-        if status.managedStatusLineInstalled {
-            return "Claude usage bridge installed"
-        }
-
-        if status.managedStatusLineNeedsRepair {
-            return "Claude usage bridge needs repair"
-        }
-
-        if status.hasConflictingStatusLine {
-            return "Custom Claude status line detected"
-        }
-
-        return "Claude usage bridge not installed"
-    }
-
-    var claudeUsageStatusSummary: String {
-        guard let status = claudeStatusLineStatus else {
-            return "Reading ~/.claude/settings.json."
-        }
-
-        if status.managedStatusLineInstalled {
-            if let summary = claudeUsageSummaryText {
-                return "Caching rate limits from Claude Code · \(summary)"
-            }
-            return "Caching rate limits from Claude Code into \(status.cacheURL.path)."
-        }
-
-        if status.managedStatusLineNeedsRepair {
-            return "Open Island detected a missing managed Claude status line script and will repair it automatically."
-        }
-
-        if status.hasConflictingStatusLine {
-            return "Open Island will not overwrite an existing Claude status line automatically."
-        }
-
-        return "Install a managed Claude status line to cache 5h and 7d usage locally."
-    }
-
-    var claudeUsageSummaryText: String? {
-        guard let snapshot = claudeUsageSnapshot else {
-            return nil
-        }
-
-        var components: [String] = []
-        if let fiveHour = snapshot.fiveHour {
-            components.append("5h \(fiveHour.roundedUsedPercentage)%")
-        }
-        if let sevenDay = snapshot.sevenDay {
-            components.append("7d \(sevenDay.roundedUsedPercentage)%")
-        }
-        if let cachedAt = snapshot.cachedAt {
-            components.append("updated \(relativeTimestampFormatter.localizedString(for: cachedAt, relativeTo: .now))")
-        }
-        return components.isEmpty ? nil : components.joined(separator: " · ")
-    }
-
-    var codexUsageStatusTitle: String {
-        if codexUsageSnapshot?.isEmpty == false {
-            return "Codex rate limits detected"
-        }
-
-        return "Waiting for Codex rate limits"
-    }
-
-    var codexUsageStatusSummary: String {
-        if let summary = codexUsageSummaryText {
-            return "Reading the latest local rollout token_count snapshots · \(summary)"
-        }
-
-        return "Passively reading ~/.codex/sessions/**/rollout-*.jsonl and extracting token_count.rate_limits."
-    }
-
-    var codexUsageSummaryText: String? {
-        guard let snapshot = codexUsageSnapshot else {
-            return nil
-        }
-
-        var components = snapshot.windows.map { window in
-            "\(window.label) \(window.roundedUsedPercentage)%"
-        }
-
-        if let planType = snapshot.planType {
-            components.append("plan \(planType)")
-        }
-
-        if let capturedAt = snapshot.capturedAt {
-            components.append("updated \(relativeTimestampFormatter.localizedString(for: capturedAt, relativeTo: .now))")
-        }
-
-        return components.isEmpty ? nil : components.joined(separator: " · ")
-    }
-
-    var codexHookStatusTitle: String {
-        if codexHooksInstalled {
-            return "Codex hooks installed"
-        }
-
-        if hooksBinaryURL == nil {
-            return "Hook binary not found"
-        }
-
-        return "Codex hooks not installed"
-    }
-
-    var codexHookStatusSummary: String {
-        guard let status = codexHookStatus else {
-            return "Reading ~/.codex state."
-        }
-
-        if codexHooksInstalled {
-            let featureText = status.featureFlagEnabled ? "feature on" : "feature off"
-            return "\(featureText) · managed hooks present"
-        }
-
-        if hooksBinaryURL == nil {
-            return "Build OpenIslandHooks before installing."
-        }
-
-        return status.featureFlagEnabled ? "feature on · no managed hooks" : "feature off · no managed hooks"
-    }
+    var codexHooksInstalled: Bool { hooks.codexHooksInstalled }
+    var claudeHooksInstalled: Bool { hooks.claudeHooksInstalled }
+    var claudeUsageInstalled: Bool { hooks.claudeUsageInstalled }
+    var claudeHookStatusTitle: String { hooks.claudeHookStatusTitle }
+    var claudeHookStatusSummary: String { hooks.claudeHookStatusSummary }
+    var claudeUsageStatusTitle: String { hooks.claudeUsageStatusTitle }
+    var claudeUsageStatusSummary: String { hooks.claudeUsageStatusSummary }
+    var claudeUsageSummaryText: String? { hooks.claudeUsageSummaryText }
+    var codexUsageStatusTitle: String { hooks.codexUsageStatusTitle }
+    var codexUsageStatusSummary: String { hooks.codexUsageStatusSummary }
+    var codexUsageSummaryText: String? { hooks.codexUsageSummaryText }
+    var codexHookStatusTitle: String { hooks.codexHookStatusTitle }
+    var codexHookStatusSummary: String { hooks.codexHookStatusSummary }
 
     var focusedSession: AgentSession? {
         state.session(id: selectedSessionID) ?? surfacedSessions.first ?? state.activeActionableSession ?? state.sessions.first
@@ -604,9 +435,9 @@ final class AppModel {
             refreshCodexHookStatus()
             refreshClaudeHookStatus()
             refreshClaudeUsageState()
-            startClaudeUsageMonitoringIfNeeded()
+            hooks.startClaudeUsageMonitoringIfNeeded()
             refreshCodexUsageState()
-            startCodexUsageMonitoringIfNeeded()
+            hooks.startCodexUsageMonitoringIfNeeded()
         } else {
             isResolvingInitialLiveSessions = false
         }
@@ -1020,127 +851,16 @@ final class AppModel {
         )
     }
 
-    func refreshCodexHookStatus() {
-        Task { [weak self] in
-            guard let self else {
-                return
-            }
-
-            do {
-                let status = try self.codexHookInstallationManager.status(hooksBinaryURL: self.hooksBinaryURL)
-                self.codexHookStatus = status
-            } catch {
-                self.lastActionMessage = "Failed to read Codex hook status: \(error.localizedDescription)"
-            }
-        }
-    }
-
-    func refreshClaudeHookStatus() {
-        Task { [weak self] in
-            guard let self else {
-                return
-            }
-
-            do {
-                let status = try self.claudeHookInstallationManager.status(hooksBinaryURL: self.hooksBinaryURL)
-                self.claudeHookStatus = status
-            } catch {
-                self.lastActionMessage = "Failed to read Claude hook status: \(error.localizedDescription)"
-            }
-        }
-    }
-
-    func refreshClaudeUsageState() {
-        let manager = claudeStatusLineInstallationManager
-        Task { [weak self] in
-            guard let self else {
-                return
-            }
-
-            do {
-                let usageState = try await Task.detached(priority: .utility) {
-                    var status = try manager.status()
-                    var repairedManagedBridge = false
-                    if status.managedStatusLineNeedsRepair {
-                        status = try manager.install()
-                        repairedManagedBridge = true
-                    }
-                    let snapshot = try ClaudeUsageLoader.load()
-                    return (status: status, snapshot: snapshot, repairedManagedBridge: repairedManagedBridge)
-                }.value
-                self.claudeStatusLineStatus = usageState.status
-                self.claudeUsageSnapshot = usageState.snapshot
-                if usageState.repairedManagedBridge {
-                    self.lastActionMessage = "Recovered the Claude usage bridge after repairing a missing managed script."
-                }
-            } catch {
-                self.lastActionMessage = "Failed to read Claude usage state: \(error.localizedDescription)"
-            }
-        }
-    }
-
-    func refreshCodexUsageState() {
-        Task { [weak self] in
-            guard let self else {
-                return
-            }
-
-            do {
-                let snapshot = try await Task.detached(priority: .utility) {
-                    try CodexUsageLoader.load()
-                }.value
-                self.codexUsageSnapshot = snapshot
-            } catch {
-                self.lastActionMessage = "Failed to read Codex usage state: \(error.localizedDescription)"
-            }
-        }
-    }
-
-    func installCodexHooks() {
-        guard let hooksBinaryURL else {
-            lastActionMessage = "Could not find a local OpenIslandHooks binary. Build the package first."
-            return
-        }
-
-        updateCodexHooks(userMessage: "Installing Codex hooks.") { manager in
-            try manager.install(hooksBinaryURL: hooksBinaryURL)
-        }
-    }
-
-    func uninstallCodexHooks() {
-        updateCodexHooks(userMessage: "Removing Codex hooks.") { manager in
-            try manager.uninstall()
-        }
-    }
-
-    func installClaudeHooks() {
-        guard let hooksBinaryURL else {
-            lastActionMessage = "Could not find a local OpenIslandHooks binary. Build the package first."
-            return
-        }
-
-        updateClaudeHooks(userMessage: "Installing Claude hooks.") { manager in
-            try manager.install(hooksBinaryURL: hooksBinaryURL)
-        }
-    }
-
-    func uninstallClaudeHooks() {
-        updateClaudeHooks(userMessage: "Removing Claude hooks.") { manager in
-            try manager.uninstall()
-        }
-    }
-
-    func installClaudeUsageBridge() {
-        updateClaudeUsageBridge(userMessage: "Installing Claude usage bridge.") { manager in
-            try manager.install()
-        }
-    }
-
-    func uninstallClaudeUsageBridge() {
-        updateClaudeUsageBridge(userMessage: "Removing Claude usage bridge.") { manager in
-            try manager.uninstall()
-        }
-    }
+    func refreshCodexHookStatus() { hooks.refreshCodexHookStatus() }
+    func refreshClaudeHookStatus() { hooks.refreshClaudeHookStatus() }
+    func refreshClaudeUsageState() { hooks.refreshClaudeUsageState() }
+    func refreshCodexUsageState() { hooks.refreshCodexUsageState() }
+    func installCodexHooks() { hooks.installCodexHooks() }
+    func uninstallCodexHooks() { hooks.uninstallCodexHooks() }
+    func installClaudeHooks() { hooks.installClaudeHooks() }
+    func uninstallClaudeHooks() { hooks.uninstallClaudeHooks() }
+    func installClaudeUsageBridge() { hooks.installClaudeUsageBridge() }
+    func uninstallClaudeUsageBridge() { hooks.uninstallClaudeUsageBridge() }
 
     private func send(_ command: BridgeCommand, userMessage: String) {
         lastActionMessage = userMessage
@@ -1164,118 +884,6 @@ final class AppModel {
         }
 
         return .deny(message: "Permission denied in Open Island.", interrupt: false)
-    }
-
-    private func updateCodexHooks(
-        userMessage: String,
-        operation: @escaping (CodexHookInstallationManager) throws -> CodexHookInstallationStatus
-    ) {
-        isCodexSetupBusy = true
-        lastActionMessage = userMessage
-
-        Task { [weak self] in
-            guard let self else {
-                return
-            }
-
-            defer {
-                self.isCodexSetupBusy = false
-            }
-
-            do {
-                let status = try operation(self.codexHookInstallationManager)
-                self.codexHookStatus = status
-                if status.managedHooksPresent {
-                    self.lastActionMessage = "Codex hooks are installed and ready."
-                } else {
-                    self.lastActionMessage = "Codex hooks are not installed."
-                }
-            } catch {
-                self.lastActionMessage = "Codex hook update failed: \(error.localizedDescription)"
-            }
-        }
-    }
-
-    private func updateClaudeHooks(
-        userMessage: String,
-        operation: @escaping (ClaudeHookInstallationManager) throws -> ClaudeHookInstallationStatus
-    ) {
-        isClaudeHookSetupBusy = true
-        lastActionMessage = userMessage
-
-        Task { [weak self] in
-            guard let self else {
-                return
-            }
-
-            defer {
-                self.isClaudeHookSetupBusy = false
-            }
-
-            do {
-                let status = try operation(self.claudeHookInstallationManager)
-                self.claudeHookStatus = status
-                if status.managedHooksPresent {
-                    self.lastActionMessage = status.hasClaudeIslandHooks
-                        ? "Claude hooks are installed. claude-island hooks are also still present."
-                        : "Claude hooks are installed and ready."
-                } else {
-                    self.lastActionMessage = "Claude hooks are not installed."
-                }
-            } catch {
-                self.lastActionMessage = "Claude hook update failed: \(error.localizedDescription)"
-            }
-        }
-    }
-
-    private func updateClaudeUsageBridge(
-        userMessage: String,
-        operation: @escaping (ClaudeStatusLineInstallationManager) throws -> ClaudeStatusLineInstallationStatus
-    ) {
-        isClaudeUsageSetupBusy = true
-        lastActionMessage = userMessage
-
-        Task { [weak self] in
-            guard let self else {
-                return
-            }
-
-            defer {
-                self.isClaudeUsageSetupBusy = false
-            }
-
-            do {
-                let status = try operation(self.claudeStatusLineInstallationManager)
-                self.claudeStatusLineStatus = status
-                self.claudeUsageSnapshot = try ClaudeUsageLoader.load()
-                if status.managedStatusLineInstalled {
-                    self.lastActionMessage = "Claude usage bridge is installed. Start a Claude Code turn to refresh cached rate limits."
-                } else {
-                    self.lastActionMessage = "Claude usage bridge is not installed."
-                }
-            } catch {
-                self.lastActionMessage = "Claude usage bridge update failed: \(error.localizedDescription)"
-            }
-        }
-    }
-
-    private func readClaudeUsageState(
-        repairManagedBridgeIfNeeded: Bool
-    ) throws -> (
-        status: ClaudeStatusLineInstallationStatus,
-        snapshot: ClaudeUsageSnapshot?,
-        repairedManagedBridge: Bool
-    ) {
-        var status = try claudeStatusLineInstallationManager.status()
-        var repairedManagedBridge = false
-
-        if repairManagedBridgeIfNeeded && status.managedStatusLineNeedsRepair {
-            status = try claudeStatusLineInstallationManager.install()
-            repairedManagedBridge = true
-        }
-
-        let snapshot = try ClaudeUsageLoader.load()
-        return (status, snapshot, repairedManagedBridge)
     }
 
     func applyTrackedEvent(
@@ -1430,7 +1038,7 @@ final class AppModel {
         }
 
         // Apply hooks binary URL.
-        hooksBinaryURL = payload.hooksBinaryURL
+        hooks.hooksBinaryURL = payload.hooksBinaryURL
 
         // Reconcile attachments and start monitoring (requires sessions to be loaded).
         reconcileSessionAttachments()
@@ -1783,40 +1391,6 @@ final class AppModel {
                     terminalAvailability: terminalAvail
                 )
                 try? await Task.sleep(for: .seconds(2))
-            }
-        }
-    }
-
-    private func startClaudeUsageMonitoringIfNeeded() {
-        guard claudeUsageMonitorTask == nil else {
-            return
-        }
-
-        claudeUsageMonitorTask = Task { @MainActor [weak self] in
-            guard let self else {
-                return
-            }
-
-            while !Task.isCancelled {
-                self.refreshClaudeUsageState()
-                try? await Task.sleep(for: .seconds(5))
-            }
-        }
-    }
-
-    private func startCodexUsageMonitoringIfNeeded() {
-        guard codexUsageMonitorTask == nil else {
-            return
-        }
-
-        codexUsageMonitorTask = Task { @MainActor [weak self] in
-            guard let self else {
-                return
-            }
-
-            while !Task.isCancelled {
-                self.refreshCodexUsageState()
-                try? await Task.sleep(for: .seconds(120))
             }
         }
     }
@@ -2501,9 +2075,4 @@ final class AppModel {
         }
     }
 
-    private var relativeTimestampFormatter: RelativeDateTimeFormatter {
-        let formatter = RelativeDateTimeFormatter()
-        formatter.unitsStyle = .short
-        return formatter
-    }
 }
