@@ -34,7 +34,7 @@ I do not want to run a closed-source paid app on my own computer just to monitor
 
 ### How To Use It
 
-- Download a build from GitHub Releases (coming soon), or build from source.
+- Download an early build from [GitHub Releases](https://github.com/Octane0411/open-vibe-island/releases), or build from source.
 - Fork this repository and vibe your own version.
 - If you hit a bug or a usage problem, open an issue. Those get the highest priority.
 - If you want support for another terminal app or coding agent, open an issue first. We will expand where practical.

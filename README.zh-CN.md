@@ -34,7 +34,7 @@
 
 ### 使用方式
 
-- 从 GitHub Releases 下载构建并安装（即将上线），或从源码构建。
+- 从 [GitHub Releases](https://github.com/Octane0411/open-vibe-island/releases) 下载早期版本并安装，或从源码构建。
 - Fork 这个仓库，然后 vibe 你自己的版本。
 - 如果你遇到 bug 或使用问题，请先发 issue，我们会优先处理。
 - 如果你希望支持其他 terminal app 或 code agent，请先发 issue，我们会尽可能扩展。
