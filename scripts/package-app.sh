@@ -20,6 +20,7 @@ signing_identity="${OPEN_ISLAND_SIGN_IDENTITY:-}"
 notary_profile="${OPEN_ISLAND_NOTARY_PROFILE:-}"
 
 brand_script="$repo_root/scripts/generate_brand_icons.py"
+dmg_bg_script="$repo_root/scripts/generate_dmg_background.py"
 entitlements_path="$repo_root/config/packaging/OpenIslandApp.entitlements"
 
 cd "$repo_root"
@@ -35,6 +36,7 @@ setup_binary="$build_bin_dir/OpenIslandSetup"
 brand_icon="$repo_root/Assets/Brand/OpenIsland.icns"
 
 python3 "$brand_script"
+python3 "$dmg_bg_script"
 
 rm -rf "$bundle_dir" "$zip_path" "$dmg_path"
 mkdir -p "$bundle_dir/Contents/MacOS" "$bundle_dir/Contents/Helpers" "$bundle_dir/Contents/Resources"
@@ -116,21 +118,22 @@ fi
 
 ditto -c -k --keepParent "$bundle_dir" "$zip_path"
 
-# --- DMG creation ---
-dmg_staging="$package_root/dmg-staging"
-rm -rf "$dmg_staging"
-mkdir -p "$dmg_staging"
-cp -R "$bundle_dir" "$dmg_staging/"
-ln -s /Applications "$dmg_staging/Applications"
+# --- Styled DMG creation ---
+dmg_bg="$repo_root/Assets/Brand/dmg-background@2x.png"
 
-hdiutil create \
-    -volname "$app_name" \
-    -srcfolder "$dmg_staging" \
-    -ov \
-    -format UDZO \
-    "$dmg_path"
-
-rm -rf "$dmg_staging"
+create-dmg \
+    --volname "$app_name" \
+    --background "$dmg_bg" \
+    --window-pos 200 120 \
+    --window-size 660 400 \
+    --icon-size 96 \
+    --text-size 13 \
+    --icon "$app_name.app" 180 210 \
+    --hide-extension "$app_name.app" \
+    --app-drop-link 480 210 \
+    --no-internet-enable \
+    "$dmg_path" \
+    "$bundle_dir"
 
 if [[ -n "$signing_identity" && -n "$notary_profile" ]]; then
     xcrun notarytool submit "$zip_path" --keychain-profile "$notary_profile" --wait
