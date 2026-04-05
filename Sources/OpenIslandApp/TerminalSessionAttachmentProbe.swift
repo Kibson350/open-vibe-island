@@ -228,6 +228,7 @@ struct TerminalSessionAttachmentProbe {
             let isRecentHookSession = !cwdContested
                 && session.origin == .live
                 && now.timeIntervalSince(session.updatedAt) < Self.staleGraceWindow
+                && session.phase != .completed
             resolutions[session.id] = SessionResolution(
                 attachmentState: (isActiveProcess || isRecentHookSession)
                     ? .attached
