@@ -872,12 +872,18 @@ struct TerminalSessionAttachmentProbe {
         }
 
         if let workingDirectory = normalizedPathForMatching(process.workingDirectory) {
+            let processTTY = normalizedTTYForMatching(process.terminalTTY)
             let candidates = claudeCandidates(
                 in: sessions,
                 claimedSessionIDs: claimedSessionIDs,
                 terminalTTY: nil,
                 workingDirectory: workingDirectory
-            )
+            ).filter { session in
+                guard let sessionTTY = normalizedTTYForMatching(session.jumpTarget?.terminalTTY) else {
+                    return true
+                }
+                return processTTY == nil || sessionTTY == processTTY
+            }
             if candidates.count == 1 {
                 return candidates[0]
             }
