@@ -18,6 +18,19 @@ extension AgentSession {
     private static let collapsedDetailAgeThreshold: TimeInterval = 20 * 60
     private static let islandActivityThreshold: TimeInterval = 20 * 60
 
+    /// Whether this session represents a subagent (worktree agent) that should
+    /// not appear as a separate entry in the session list.  The parent session
+    /// already tracks subagents via `claudeMetadata.activeSubagents`.
+    ///
+    /// Note: `claudeMetadata.agentID` is NOT a reliable signal here because
+    /// SubagentStart hooks set `agent_id` on the *parent* session's metadata.
+    var isSubagentSession: Bool {
+        if let path = claudeMetadata?.transcriptPath, path.contains("/subagents/") {
+            return true
+        }
+        return false
+    }
+
     var islandActivityDate: Date {
         updatedAt
     }

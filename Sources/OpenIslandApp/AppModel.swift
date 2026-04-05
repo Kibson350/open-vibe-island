@@ -1677,6 +1677,8 @@ final class AppModel {
         var claimedLiveAttachmentKeys: Set<String> = []
 
         for session in rankedSessions where session.isAttachedToTerminal {
+            guard !session.isSubagentSession else { continue }
+
             if let liveAttachmentKey = liveAttachmentKey(for: session) {
                 guard claimedLiveAttachmentKeys.insert(liveAttachmentKey).inserted else {
                     continue
@@ -1687,7 +1689,7 @@ final class AppModel {
         }
 
         let primaryIDs = Set(primary.map(\.id))
-        let overflow = rankedSessions.filter { !primaryIDs.contains($0.id) }
+        let overflow = rankedSessions.filter { !primaryIDs.contains($0.id) && !$0.isSubagentSession }
         return (primary, overflow)
     }
 
