@@ -19,7 +19,7 @@ I do not want to run a closed-source paid app on my own computer just to monitor
 ### How To Use It
 
 - Download a build from GitHub Releases (coming soon), or build from source.
-- Fork this repository and vibe your own version. This project applies harness engineering, so customization should stay straightforward.
+- Fork this repository and vibe your own version.
 - If you hit a bug or a usage problem, open an issue. Those get the highest priority.
 - If you want support for another terminal app or coding agent, open an issue first. We will expand where practical.
 - If you have a product idea or feature request, open an issue first. A follow-up PR with a demo is welcome.
@@ -108,11 +108,8 @@ Four targets in one Swift package:
 Build and run locally:
 
 ```bash
-zsh scripts/harness.sh
 open Package.swift
 ```
-
-The harness entrypoint lives at `scripts/harness.sh`. With no arguments it runs the current repository baseline: docs checks, `swift test`, and `swift build`.
 
 Build a local `.app` bundle:
 
@@ -142,8 +139,7 @@ Claude usage setup is available from the app's control center and remains opt-in
 ## Repository Map
 
 - Start with [docs/index.md](docs/index.md) for the current doc map.
-- Read [docs/quality.md](docs/quality.md) for the harness contract and verification baseline.
-- Run `zsh scripts/harness.sh smoke` on macOS for a deterministic local app smoke pass.
+- Read [docs/quality.md](docs/quality.md) for the quality baseline and verification approach.
 
 ## Requirements
 
@@ -161,13 +157,6 @@ That means:
 - Less tab hunting
 - Less friction around session awareness
 - A faster path back to the active agent session
-
-## Roadmap
-
-1. Ship a solid single-agent macOS MVP
-2. Harden approvals and jump-back behavior
-3. Improve multi-session handling
-4. Expand to more agent and terminal integrations
 
 ## Contributing
 
