@@ -49,6 +49,24 @@
 "settings.sound.mute" = "静音";
 "settings.sound.selectSound" = "选择音效";
 
+/* Settings - Setup */
+"settings.tab.setup" = "安装引导";
+"setup.section.binary" = "Hook 二进制";
+"setup.section.hooks" = "CLI Hooks";
+"setup.section.usage" = "用量桥接";
+"setup.section.permissions" = "权限";
+"setup.binaryReady" = "就绪";
+"setup.binaryMissing" = "未找到 — 请先构建 OpenIslandHooks";
+"setup.hookReady" = "Hooks 已安装";
+"setup.hookMissing" = "Hooks 未安装";
+"setup.usageBridge" = "Claude 用量桥接";
+"setup.usageBridgeReady" = "已安装";
+"setup.usageBridgeDesc" = "在本地追踪 Claude API 用量";
+"setup.optional" = "可选";
+"setup.permissionsTitle" = "辅助功能";
+"setup.permissionsDesc" = "Open Island 可能需要辅助功能权限来检测终端窗口。请在「系统设置 → 隐私与安全性 → 辅助功能」中授权。";
+"setup.installAll" = "全部安装";
+
 /* Settings - Placeholder */
 "settings.shortcuts.comingSoon" = "快捷键设置即将推出。";
 "settings.lab.comingSoon" = "实验性功能即将推出。";

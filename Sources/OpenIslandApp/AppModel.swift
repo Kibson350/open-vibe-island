@@ -393,6 +393,7 @@ final class AppModel {
             hooks.refreshCodexUsageState()
             hooks.startCodexUsageMonitoringIfNeeded()
             updateChecker.checkIfNeeded()
+
         } else {
             isResolvingInitialLiveSessions = false
         }
@@ -764,6 +765,17 @@ final class AppModel {
 
         // Apply hooks binary URL.
         hooks.hooksBinaryURL = payload.hooksBinaryURL
+
+        // Auto-install missing hooks and usage bridge on first launch.
+        if payload.hooksBinaryURL != nil {
+            Task { @MainActor [weak self] in
+                try? await Task.sleep(for: .milliseconds(800))
+                guard let self else { return }
+                if !self.claudeHooksInstalled { self.installClaudeHooks() }
+                if !self.codexHooksInstalled { self.installCodexHooks() }
+                if !self.claudeUsageInstalled { self.installClaudeUsageBridge() }
+            }
+        }
 
         // Reconcile attachments and start monitoring (requires sessions to be loaded).
         monitoring.reconcileSessionAttachments()

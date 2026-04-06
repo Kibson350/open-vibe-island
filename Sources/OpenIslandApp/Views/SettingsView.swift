@@ -5,6 +5,7 @@ import OpenIslandCore
 
 enum SettingsTab: String, CaseIterable, Identifiable {
     case general
+    case setup
     case display
     case sound
     case shortcuts
@@ -16,6 +17,7 @@ enum SettingsTab: String, CaseIterable, Identifiable {
     func label(_ lang: LanguageManager) -> String {
         switch self {
         case .general:   lang.t("settings.tab.general")
+        case .setup:     lang.t("settings.tab.setup")
         case .display:   lang.t("settings.tab.display")
         case .sound:     lang.t("settings.tab.sound")
         case .shortcuts: lang.t("settings.tab.shortcuts")
@@ -27,6 +29,7 @@ enum SettingsTab: String, CaseIterable, Identifiable {
     var icon: String {
         switch self {
         case .general:   "gearshape.fill"
+        case .setup:     "arrow.down.circle.fill"
         case .display:   "textformat.size"
         case .sound:     "speaker.wave.2.fill"
         case .shortcuts: "keyboard.fill"
@@ -38,6 +41,7 @@ enum SettingsTab: String, CaseIterable, Identifiable {
     var iconColor: Color {
         switch self {
         case .general:   .gray
+        case .setup:     .orange
         case .display:   .blue
         case .sound:     .green
         case .shortcuts: .gray
@@ -48,9 +52,9 @@ enum SettingsTab: String, CaseIterable, Identifiable {
 
     var section: SettingsSection {
         switch self {
-        case .general, .display, .sound: .system
-        case .shortcuts, .lab:           .advanced
-        case .about:                     .app
+        case .general, .setup, .display, .sound: .system
+        case .shortcuts, .lab:                   .advanced
+        case .about:                             .app
         }
     }
 }
@@ -123,6 +127,8 @@ struct SettingsView: View {
             switch selectedTab {
             case .general:
                 GeneralSettingsPane(model: model)
+            case .setup:
+                SetupSettingsPane(model: model)
             case .display:
                 DisplaySettingsPane(model: model)
             case .sound:
@@ -150,8 +156,6 @@ struct GeneralSettingsPane: View {
     var model: AppModel
 
     @State private var launchAtLogin = false
-    @State private var confirmingUninstallClaude = false
-    @State private var confirmingUninstallCodex = false
 
     private var lang: LanguageManager { model.lang }
 
@@ -188,73 +192,6 @@ struct GeneralSettingsPane: View {
                 Toggle(lang.t("settings.general.autoCollapse"), isOn: .constant(true))
             }
 
-            Section(lang.t("settings.general.cliHooks")) {
-                HStack {
-                    Text("Claude Code")
-                    Spacer()
-                    if model.claudeHooksInstalled {
-                        HStack(spacing: 8) {
-                            HStack(spacing: 4) {
-                                Image(systemName: "checkmark.circle.fill")
-                                    .foregroundStyle(.green)
-                                Text(lang.t("settings.general.activated"))
-                                    .foregroundStyle(.secondary)
-                            }
-                            Button(lang.t("settings.general.uninstall")) {
-                                confirmingUninstallClaude = true
-                            }
-                            .foregroundStyle(.red)
-                            .font(.caption)
-                        }
-                    } else {
-                        Button(lang.t("settings.general.install")) {
-                            model.installClaudeHooks()
-                        }
-                        .disabled(model.hooksBinaryURL == nil)
-                    }
-                }
-                .alert(lang.t("settings.general.uninstallConfirmTitle"), isPresented: $confirmingUninstallClaude) {
-                    Button(lang.t("settings.general.uninstallConfirmAction"), role: .destructive) {
-                        model.uninstallClaudeHooks()
-                    }
-                    Button(lang.t("settings.general.cancel"), role: .cancel) {}
-                } message: {
-                    Text(lang.t("settings.general.uninstallConfirmMessage.claude"))
-                }
-
-                HStack {
-                    Text("Codex")
-                    Spacer()
-                    if model.codexHooksInstalled {
-                        HStack(spacing: 8) {
-                            HStack(spacing: 4) {
-                                Image(systemName: "checkmark.circle.fill")
-                                    .foregroundStyle(.green)
-                                Text(lang.t("settings.general.activated"))
-                                    .foregroundStyle(.secondary)
-                            }
-                            Button(lang.t("settings.general.uninstall")) {
-                                confirmingUninstallCodex = true
-                            }
-                            .foregroundStyle(.red)
-                            .font(.caption)
-                        }
-                    } else {
-                        Button(lang.t("settings.general.install")) {
-                            model.installCodexHooks()
-                        }
-                        .disabled(model.hooksBinaryURL == nil)
-                    }
-                }
-                .alert(lang.t("settings.general.uninstallConfirmTitle"), isPresented: $confirmingUninstallCodex) {
-                    Button(lang.t("settings.general.uninstallConfirmAction"), role: .destructive) {
-                        model.uninstallCodexHooks()
-                    }
-                    Button(lang.t("settings.general.cancel"), role: .cancel) {}
-                } message: {
-                    Text(lang.t("settings.general.uninstallConfirmMessage.codex"))
-                }
-            }
         }
         .formStyle(.grouped)
         .navigationTitle(lang.t("settings.tab.general"))
@@ -367,6 +304,150 @@ struct AboutSettingsPane: View {
         }
         .frame(maxWidth: .infinity)
         .navigationTitle(lang.t("settings.tab.about"))
+    }
+}
+
+// MARK: - Setup
+
+struct SetupSettingsPane: View {
+    var model: AppModel
+
+    @State private var confirmingUninstallClaude = false
+    @State private var confirmingUninstallCodex = false
+
+    private var lang: LanguageManager { model.lang }
+
+    var body: some View {
+        Form {
+            Section(lang.t("setup.section.hooks")) {
+                hookRow(
+                    name: "Claude Code",
+                    installed: model.claudeHooksInstalled,
+                    busy: model.isClaudeHookSetupBusy,
+                    installAction: { model.installClaudeHooks() },
+                    uninstallAction: { confirmingUninstallClaude = true }
+                )
+                .alert(lang.t("settings.general.uninstallConfirmTitle"), isPresented: $confirmingUninstallClaude) {
+                    Button(lang.t("settings.general.uninstallConfirmAction"), role: .destructive) {
+                        model.uninstallClaudeHooks()
+                    }
+                    Button(lang.t("settings.general.cancel"), role: .cancel) {}
+                } message: {
+                    Text(lang.t("settings.general.uninstallConfirmMessage.claude"))
+                }
+
+                hookRow(
+                    name: "Codex",
+                    installed: model.codexHooksInstalled,
+                    busy: model.isCodexSetupBusy,
+                    installAction: { model.installCodexHooks() },
+                    uninstallAction: { confirmingUninstallCodex = true }
+                )
+                .alert(lang.t("settings.general.uninstallConfirmTitle"), isPresented: $confirmingUninstallCodex) {
+                    Button(lang.t("settings.general.uninstallConfirmAction"), role: .destructive) {
+                        model.uninstallCodexHooks()
+                    }
+                    Button(lang.t("settings.general.cancel"), role: .cancel) {}
+                } message: {
+                    Text(lang.t("settings.general.uninstallConfirmMessage.codex"))
+                }
+            }
+
+            Section {
+                HStack {
+                    Label(lang.t("setup.usageBridge"), systemImage: "chart.bar")
+                    Spacer()
+                    if model.claudeUsageInstalled {
+                        HStack(spacing: 4) {
+                            Image(systemName: "checkmark.circle.fill")
+                                .foregroundStyle(.green)
+                            Text(lang.t("setup.usageBridgeReady"))
+                                .foregroundStyle(.secondary)
+                        }
+                    } else if model.isClaudeUsageSetupBusy {
+                        ProgressView().controlSize(.small)
+                    } else {
+                        Button(lang.t("settings.general.install")) {
+                            model.installClaudeUsageBridge()
+                        }
+                    }
+                }
+            } header: {
+                HStack(spacing: 4) {
+                    Text(lang.t("setup.section.usage"))
+                    Text(lang.t("setup.optional"))
+                        .foregroundStyle(.tertiary)
+                }
+            }
+
+            Section(lang.t("setup.section.permissions")) {
+                HStack(alignment: .top) {
+                    Label {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(lang.t("setup.permissionsTitle"))
+                            Text(lang.t("setup.permissionsDesc"))
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    } icon: {
+                        Image(systemName: "lock.shield")
+                    }
+                    Spacer()
+                }
+            }
+
+            Section {
+                Button(lang.t("setup.installAll")) {
+                    if !model.claudeHooksInstalled { model.installClaudeHooks() }
+                    if !model.codexHooksInstalled { model.installCodexHooks() }
+                    if !model.claudeUsageInstalled { model.installClaudeUsageBridge() }
+                }
+                .disabled(model.hooksBinaryURL == nil || allReady)
+                .frame(maxWidth: .infinity, alignment: .center)
+            }
+        }
+        .formStyle(.grouped)
+        .navigationTitle(lang.t("settings.tab.setup"))
+    }
+
+    private var allReady: Bool {
+        model.claudeHooksInstalled && model.codexHooksInstalled && model.claudeUsageInstalled
+    }
+
+    @ViewBuilder
+    private func hookRow(
+        name: String,
+        installed: Bool,
+        busy: Bool,
+        installAction: @escaping () -> Void,
+        uninstallAction: @escaping () -> Void
+    ) -> some View {
+        HStack {
+            Label(name, systemImage: "terminal")
+            Spacer()
+            if installed {
+                HStack(spacing: 8) {
+                    HStack(spacing: 4) {
+                        Image(systemName: "checkmark.circle.fill")
+                            .foregroundStyle(.green)
+                        Text(lang.t("settings.general.activated"))
+                            .foregroundStyle(.secondary)
+                    }
+                    Button(lang.t("settings.general.uninstall")) {
+                        uninstallAction()
+                    }
+                    .foregroundStyle(.red)
+                    .font(.caption)
+                }
+            } else if busy {
+                ProgressView().controlSize(.small)
+            } else {
+                Button(lang.t("settings.general.install")) {
+                    installAction()
+                }
+                .disabled(model.hooksBinaryURL == nil)
+            }
+        }
     }
 }
 

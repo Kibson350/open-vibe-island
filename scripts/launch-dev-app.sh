@@ -2,6 +2,13 @@
 
 set -euo pipefail
 
+skip_setup=false
+for arg in "$@"; do
+  case "$arg" in
+    --skip-setup) skip_setup=true ;;
+  esac
+done
+
 repo_root="$(cd "$(dirname "$0")/.." && pwd)"
 build_root="$repo_root/.build/arm64-apple-macosx/debug"
 app_binary="$build_root/OpenIslandApp"
@@ -20,12 +27,21 @@ swift build -c debug --product OpenIslandHooks
 swift build -c debug --product OpenIslandSetup
 
 python3 "$brand_script"
-"$setup_binary" install --hooks-binary "$hooks_binary"
+if [ "$skip_setup" = false ]; then
+  "$setup_binary" install --hooks-binary "$hooks_binary"
+fi
 
 mkdir -p "$bundle_dir/Contents/MacOS" "$bundle_dir/Contents/Resources"
 cp "$app_binary" "$bundle_binary"
 cp "$brand_icon" "$bundle_dir/Contents/Resources/OpenIsland.icns"
 chmod +x "$bundle_binary"
+
+# Copy SPM resource bundle so Bundle.module can find localized strings.
+resource_bundle="$build_root/OpenIsland_OpenIslandApp.bundle"
+if [ -d "$resource_bundle" ]; then
+    rm -rf "$bundle_dir/OpenIsland_OpenIslandApp.bundle"
+    cp -R "$resource_bundle" "$bundle_dir/"
+fi
 
 cat > "$plist_path" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>

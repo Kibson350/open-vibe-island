@@ -49,6 +49,24 @@
 "settings.sound.mute" = "Mute";
 "settings.sound.selectSound" = "Select Sound";
 
+/* Settings - Setup */
+"settings.tab.setup" = "Setup";
+"setup.section.binary" = "Hook Binary";
+"setup.section.hooks" = "CLI Hooks";
+"setup.section.usage" = "Usage Bridge";
+"setup.section.permissions" = "Permissions";
+"setup.binaryReady" = "Ready";
+"setup.binaryMissing" = "Not found — build OpenIslandHooks first";
+"setup.hookReady" = "Hooks installed";
+"setup.hookMissing" = "Hooks not installed";
+"setup.usageBridge" = "Claude Usage Bridge";
+"setup.usageBridgeReady" = "Installed";
+"setup.usageBridgeDesc" = "Tracks Claude API usage locally";
+"setup.optional" = "Optional";
+"setup.permissionsTitle" = "Accessibility";
+"setup.permissionsDesc" = "Open Island may need Accessibility permission to detect terminal windows. Grant it in System Settings → Privacy & Security → Accessibility.";
+"setup.installAll" = "Install All";
+
 /* Settings - Placeholder */
 "settings.shortcuts.comingSoon" = "Keyboard shortcuts coming soon.";
 "settings.lab.comingSoon" = "Experimental features coming soon.";

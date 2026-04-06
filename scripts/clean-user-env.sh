@@ -70,11 +70,15 @@ for event in list(hooks.keys()):
             hooks[event] = filtered
         else:
             del hooks[event]
+sl = d.get('statusLine', {})
+if 'open-island' in sl.get('command', '') or 'vibe-island' in sl.get('command', ''):
+    del d['statusLine']
+    changed = True
 if changed:
-    if not hooks:
+    if not hooks and 'hooks' in d:
         del d['hooks']
     p.write_text(json.dumps(d, indent=2, ensure_ascii=False) + '\n')
-    print('stripped OpenIsland hooks from', sys.argv[1])
+    print('stripped OpenIsland hooks/statusLine from', sys.argv[1])
 " "$claude_settings" 2>/dev/null && green "cleaned hooks in $claude_settings" || true
     fi
 fi
