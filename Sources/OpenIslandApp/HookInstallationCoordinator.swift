@@ -215,6 +215,31 @@ final class HookInstallationCoordinator {
         return status.featureFlagEnabled ? "feature on · no managed hooks" : "feature off · no managed hooks"
     }
 
+    // MARK: - Auto-update hooks binary
+
+    /// Overwrites the installed hooks binary if the app bundle ships a newer version.
+    /// Call once at startup after hooksBinaryURL is set.
+    func updateHooksBinaryIfNeeded() {
+        guard let sourceURL = hooksBinaryURL else { return }
+
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            do {
+                let source = sourceURL
+                let updated = try await Task.detached(priority: .utility) {
+                    try ManagedHooksBinary.updateIfNeeded(from: source)
+                }.value
+                if updated {
+                    self.onStatusMessage?("Hooks binary updated to match the current app version.")
+                    self.refreshCodexHookStatus()
+                    self.refreshClaudeHookStatus()
+                }
+            } catch {
+                self.onStatusMessage?("Failed to update hooks binary: \(error.localizedDescription)")
+            }
+        }
+    }
+
     // MARK: - Refresh
 
     func refreshCodexHookStatus() {
