@@ -59,14 +59,13 @@ public enum CodexHookInstaller {
     public static let managedStatusMessage = "Managed by Open Island"
     public static let legacyManagedStatusMessage = "Managed by Vibe Island"
     public static let managedTimeout = 45
-    public static let interactiveTimeout = 24 * 60 * 60
 
-    private static let eventSpecs: [(name: String, matcher: String?, timeout: Int?)] = [
-        ("SessionStart", "startup|resume", nil),
-        ("UserPromptSubmit", nil, nil),
-        ("PreToolUse", nil, interactiveTimeout),
-        ("PostToolUse", nil, nil),
-        ("Stop", nil, nil),
+    private static let eventSpecs: [(name: String, matcher: String?)] = [
+        ("SessionStart", "startup|resume"),
+        ("UserPromptSubmit", nil),
+        ("PreToolUse", nil),
+        ("PostToolUse", nil),
+        ("Stop", nil),
     ]
 
     public static func hookCommand(for binaryPath: String) -> String {
@@ -93,7 +92,7 @@ public enum CodexHookInstaller {
         for spec in eventSpecs {
             let existingGroups = hooksObject[spec.name] as? [Any] ?? []
             let cleanedGroups = sanitizeForInstall(groups: existingGroups, replacingCommand: hookCommand)
-            hooksObject[spec.name] = cleanedGroups + [managedGroup(matcher: spec.matcher, timeout: spec.timeout ?? managedTimeout, hookCommand: hookCommand)]
+            hooksObject[spec.name] = cleanedGroups + [managedGroup(matcher: spec.matcher, hookCommand: hookCommand)]
         }
 
         rootObject["hooks"] = hooksObject
@@ -292,12 +291,12 @@ public enum CodexHookInstaller {
         }
     }
 
-    private static func managedGroup(matcher: String?, timeout: Int, hookCommand: String) -> [String: Any] {
+    private static func managedGroup(matcher: String?, hookCommand: String) -> [String: Any] {
         var group: [String: Any] = [
             "hooks": [[
                 "type": "command",
                 "command": hookCommand,
-                "timeout": timeout,
+                "timeout": managedTimeout,
             ]]
         ]
 

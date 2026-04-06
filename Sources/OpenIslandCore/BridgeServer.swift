@@ -397,26 +397,17 @@ public final class BridgeServer: @unchecked Sendable {
             synchronizeCodexMetadata(for: payload)
 
             let command = payload.commandPreview ?? "Bash command"
-
-            let approvalEvent = AgentEvent.permissionRequested(
-                PermissionRequested(
-                    sessionID: payload.sessionID,
-                    request: PermissionRequest(
-                        title: "Run Bash command",
-                        summary: "Codex wants to run a shell command.",
-                        affectedPath: payload.commandText ?? command,
-                        primaryActionTitle: "Allow",
-                        secondaryActionTitle: "Deny"
-                    ),
-                    timestamp: .now
+            emit(
+                .activityUpdated(
+                    SessionActivityUpdated(
+                        sessionID: payload.sessionID,
+                        summary: "Codex wants to run: \(command)",
+                        phase: .running,
+                        timestamp: .now
+                    )
                 )
             )
-
-            emit(approvalEvent)
-
-            pendingApprovals[payload.sessionID] = PendingApproval(
-                clientID: clientID
-            )
+            send(.response(.acknowledged), to: clientID)
 
         case .postToolUse:
             ensureSessionExists(for: payload)
