@@ -183,13 +183,13 @@ final class NotificationManager: NSObject, ObservableObject {
         }
     }
 
-    func sendCompletionNotification(_ event: WatchCompletionEvent) {
+    func sendCompletionNotification(_ event: WatchCompletionEvent, silent: Bool = false) {
         guard isAuthorized else { return }
 
         let content = UNMutableNotificationContent()
         content.title = "\(event.agentTool) - Task completed"
         content.body = event.summary
-        content.sound = .default
+        content.sound = silent ? nil : .default
         content.categoryIdentifier = Self.sessionCompletedCategoryID
         content.userInfo = [
             "sessionID": event.sessionID,

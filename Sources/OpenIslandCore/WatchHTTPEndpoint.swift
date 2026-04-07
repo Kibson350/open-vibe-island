@@ -369,7 +369,7 @@ public final class WatchHTTPEndpoint: @unchecked Sendable {
             }
 
             // Send initial keepalive comment
-            let keepalive = ": connected\n\n".data(using: .utf8)!
+            guard let keepalive = ": connected\n\n".data(using: .utf8) else { return }
             connection.send(content: keepalive, completion: .contentProcessed { _ in })
         })
 

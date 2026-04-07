@@ -289,6 +289,48 @@ final class AppModel {
     @ObservationIgnored
     private var hasFinishedInit = false
 
+    // MARK: - Watch Notification
+
+    private static let watchNotificationEnabledKey = "watch.notification.enabled"
+
+    var watchNotificationEnabled: Bool = false {
+        didSet {
+            guard watchNotificationEnabled != oldValue else { return }
+            UserDefaults.standard.set(watchNotificationEnabled, forKey: Self.watchNotificationEnabledKey)
+            if watchNotificationEnabled {
+                startWatchRelay()
+            } else {
+                stopWatchRelay()
+            }
+        }
+    }
+
+    @ObservationIgnored
+    private(set) var watchRelay: WatchNotificationRelay?
+
+    /// Current pairing code for display in the settings UI.
+    var watchPairingCode: String {
+        watchRelay?.endpoint.currentCode() ?? "----"
+    }
+
+    /// Number of currently connected iPhone SSE clients.
+    var watchConnectedDevices: Int {
+        // Placeholder — endpoint doesn't expose count yet
+        0
+    }
+
+    private func startWatchRelay() {
+        guard watchRelay == nil else { return }
+        let relay = WatchNotificationRelay()
+        relay.start()
+        self.watchRelay = relay
+    }
+
+    private func stopWatchRelay() {
+        watchRelay?.stop()
+        watchRelay = nil
+    }
+
     var ignoresPointerExitDuringHarness = false
     var disablesOverlayEventMonitoringDuringHarness = false
 
@@ -350,6 +392,10 @@ final class AppModel {
                 }
             }
             statusColorHexes = colors
+        }
+        watchNotificationEnabled = UserDefaults.standard.bool(forKey: Self.watchNotificationEnabledKey)
+        if watchNotificationEnabled {
+            startWatchRelay()
         }
 
         overlay.appModel = self

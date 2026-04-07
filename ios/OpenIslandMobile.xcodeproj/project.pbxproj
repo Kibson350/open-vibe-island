@@ -15,6 +15,8 @@
 		AA000006 /* ConnectionManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB000006 /* ConnectionManager.swift */; };
 		AA000007 /* PairingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB000007 /* PairingView.swift */; };
 		AA000008 /* NotificationManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB000009 /* NotificationManager.swift */; };
+		AA000010 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB000010 /* SettingsView.swift */; };
+		AA000011 /* EventDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB000011 /* EventDetailView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -27,6 +29,8 @@
 		AB000007 /* PairingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PairingView.swift; sourceTree = "<group>"; };
 		AB000008 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		AB000009 /* NotificationManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationManager.swift; sourceTree = "<group>"; };
+		AB000010 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
+		AB000011 /* EventDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EventDetailView.swift; sourceTree = "<group>"; };
 		AC000001 /* OpenIslandMobile.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = OpenIslandMobile.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
@@ -85,6 +89,8 @@
 			isa = PBXGroup;
 			children = (
 				AB000007 /* PairingView.swift */,
+				AB000010 /* SettingsView.swift */,
+				AB000011 /* EventDetailView.swift */,
 			);
 			path = Views;
 			sourceTree = "<group>";
@@ -181,6 +187,8 @@
 				AA000006 /* ConnectionManager.swift in Sources */,
 				AA000007 /* PairingView.swift in Sources */,
 				AA000008 /* NotificationManager.swift in Sources */,
+				AA000010 /* SettingsView.swift in Sources */,
+				AA000011 /* EventDetailView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
