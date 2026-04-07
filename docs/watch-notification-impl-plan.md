@@ -228,8 +228,27 @@ ios/
 
 ---
 
-## 每个 Step 可以独立开分支和 PR
+## 分支策略
 
+Watch 通知是实验性功能，不能污染 `main`。使用 **integration branch** 模式：
+
+```
+main (发版用，保持干净)
+  └── feat/watch-notification (集成分支)
+        ├── Step 1 PR → target feat/watch-notification
+        ├── Step 2 PR → target feat/watch-notification
+        ├── Step 3 PR → target feat/watch-notification
+        ├── Step 4 PR → target feat/watch-notification
+        ├── Step 5 PR → target feat/watch-notification
+        └── 功能完整后 → 一个 PR 合入 main
+```
+
+**规则：**
+- 每个 Step 从 `feat/watch-notification` 开分支，PR 也 target `feat/watch-notification`
+- **不要** target `main`，不要直接往 `main` 合并
+- 功能完整且稳定后，`feat/watch-notification` 整体合入 `main`
+
+**分支命名：**
 - Step 1: `feat/watch-http-endpoint`
 - Step 2: `feat/watch-ios-app`
 - Step 3: `feat/watch-notifications`
