@@ -17,6 +17,9 @@ final class SSEClient: NSObject, @unchecked Sendable {
     /// Called on main queue when the connection is lost.
     var onDisconnect: (@MainActor () -> Void)?
 
+    /// Called on main queue when a 401 Unauthorized response is received.
+    var onUnauthorized: (@MainActor () -> Void)?
+
     init(baseURL: URL, token: String) {
         self.baseURL = baseURL
         self.token = token
@@ -104,6 +107,24 @@ final class SSEClient: NSObject, @unchecked Sendable {
 // MARK: - URLSessionDataDelegate
 
 extension SSEClient: URLSessionDataDelegate {
+    func urlSession(
+        _ session: URLSession,
+        dataTask: URLSessionDataTask,
+        didReceive response: URLResponse,
+        completionHandler: @escaping (URLSession.ResponseDisposition) -> Void
+    ) {
+        if let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 401 {
+            Self.logger.warning("SSE received 401 Unauthorized")
+            let handler = self.onUnauthorized
+            Task { @MainActor in
+                handler?()
+            }
+            completionHandler(.cancel)
+            return
+        }
+        completionHandler(.allow)
+    }
+
     func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
         guard let text = String(data: data, encoding: .utf8) else { return }
         buffer += text

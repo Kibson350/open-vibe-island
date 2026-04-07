@@ -66,8 +66,13 @@ struct WatchEvent: Identifiable {
     let kind: Kind
     let agentTool: String
     let sessionID: String
+    let workingDirectory: String?
     /// Whether this event has been resolved (user acted on it or Mac resolved it).
     var isResolved: Bool = false
+    /// When the event was resolved (set alongside isResolved).
+    var resolvedAt: Date?
+    /// The action that was taken to resolve (e.g. "allow", "deny", option text).
+    var resolvedAction: String?
 
     enum Kind {
         case permissionRequested(title: String, summary: String, requestID: String,
@@ -139,7 +144,8 @@ struct WatchEvent: Identifiable {
                 secondaryAction: event.secondaryAction
             ),
             agentTool: event.agentTool,
-            sessionID: event.sessionID
+            sessionID: event.sessionID,
+            workingDirectory: event.workingDirectory
         )
     }
 
@@ -152,7 +158,8 @@ struct WatchEvent: Identifiable {
                 requestID: event.requestID
             ),
             agentTool: event.agentTool,
-            sessionID: event.sessionID
+            sessionID: event.sessionID,
+            workingDirectory: nil
         )
     }
 
@@ -161,7 +168,8 @@ struct WatchEvent: Identifiable {
             timestamp: Date(),
             kind: .sessionCompleted(summary: event.summary),
             agentTool: event.agentTool,
-            sessionID: event.sessionID
+            sessionID: event.sessionID,
+            workingDirectory: nil
         )
     }
 }

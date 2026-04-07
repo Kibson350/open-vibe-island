@@ -2,6 +2,7 @@ import Combine
 import Foundation
 import Network
 import SwiftUI
+import UIKit
 import os
 
 /// Manages the full lifecycle: Bonjour discovery → pairing → SSE connection → reconnection.
@@ -49,6 +50,23 @@ final class ConnectionManager: ObservableObject {
     @Published var showPairing = false
     @Published private(set) var connectedMacName: String?
     @Published private(set) var recentEvents: [WatchEvent] = []
+    /// User-visible error message (e.g. SSE failure, token expiry).
+    @Published private(set) var connectionError: String?
+
+    // MARK: - Notification Settings (persisted via UserDefaults)
+
+    @Published var notifyPermissions: Bool {
+        didSet { UserDefaults.standard.set(notifyPermissions, forKey: "openisland.notify.permissions") }
+    }
+    @Published var notifyQuestions: Bool {
+        didSet { UserDefaults.standard.set(notifyQuestions, forKey: "openisland.notify.questions") }
+    }
+    @Published var notifyCompletions: Bool {
+        didSet { UserDefaults.standard.set(notifyCompletions, forKey: "openisland.notify.completions") }
+    }
+    @Published var silentCompletions: Bool {
+        didSet { UserDefaults.standard.set(silentCompletions, forKey: "openisland.notify.silentCompletions") }
+    }
 
     // MARK: - Internal State
 
@@ -65,14 +83,36 @@ final class ConnectionManager: ObservableObject {
         get { UserDefaults.standard.string(forKey: "openisland.macName") }
         set { UserDefaults.standard.set(newValue, forKey: "openisland.macName") }
     }
+    var pairedAt: Date? {
+        get {
+            let interval = UserDefaults.standard.double(forKey: "openisland.pairedAt")
+            return interval > 0 ? Date(timeIntervalSince1970: interval) : nil
+        }
+        set {
+            if let date = newValue {
+                UserDefaults.standard.set(date.timeIntervalSince1970, forKey: "openisland.pairedAt")
+            } else {
+                UserDefaults.standard.removeObject(forKey: "openisland.pairedAt")
+            }
+        }
+    }
 
     private var reconnectTask: Task<Void, Never>?
     private var discoveryObservation: Task<Void, Never>?
+    private var networkMonitor: NWPathMonitor?
+    private var foregroundObserver: NSObjectProtocol?
+    private var lastKnownNetworkSatisfied = true
     private static let maxRecentEvents = 50
 
     // MARK: - Lifecycle
 
     init() {
+        let defaults = UserDefaults.standard
+        self.notifyPermissions = defaults.object(forKey: "openisland.notify.permissions") as? Bool ?? true
+        self.notifyQuestions = defaults.object(forKey: "openisland.notify.questions") as? Bool ?? true
+        self.notifyCompletions = defaults.object(forKey: "openisland.notify.completions") as? Bool ?? true
+        self.silentCompletions = defaults.object(forKey: "openisland.notify.silentCompletions") as? Bool ?? false
+
         // If we have a saved token but no connection, we'll try to reconnect when discovering
         if savedToken != nil {
             connectedMacName = savedMacName
@@ -80,6 +120,68 @@ final class ConnectionManager: ObservableObject {
 
         // Observe notification action relay for resolution posting
         observeNotificationActions()
+
+        // Monitor network changes for WiFi disconnect/reconnect
+        startNetworkMonitor()
+
+        // Monitor app foreground transitions
+        foregroundObserver = NotificationCenter.default.addObserver(
+            forName: UIApplication.willEnterForegroundNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.handleForegroundTransition()
+            }
+        }
+    }
+
+    // Note: networkMonitor and foregroundObserver are cleaned up in disconnect()
+    // and when ConnectionManager is deallocated, ARC handles NWPathMonitor cancellation.
+
+    private func startNetworkMonitor() {
+        let monitor = NWPathMonitor(requiredInterfaceType: .wifi)
+        monitor.pathUpdateHandler = { [weak self] path in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                let wasSatisfied = self.lastKnownNetworkSatisfied
+                let isSatisfied = path.status == .satisfied
+                self.lastKnownNetworkSatisfied = isSatisfied
+
+                if wasSatisfied && !isSatisfied {
+                    // WiFi lost — proactively disconnect SSE
+                    Self.logger.info("WiFi lost, disconnecting SSE")
+                    self.sseClient?.disconnect()
+                    self.sseClient = nil
+                    if self.state == .connected {
+                        self.state = .paired
+                        self.connectionError = "WiFi 断开，等待网络恢复..."
+                    }
+                } else if !wasSatisfied && isSatisfied && self.savedToken != nil {
+                    // WiFi restored — attempt reconnect via Bonjour
+                    Self.logger.info("WiFi restored, attempting reconnect")
+                    self.connectionError = nil
+                    self.startDiscovery()
+                }
+            }
+        }
+        monitor.start(queue: DispatchQueue(label: "app.openisland.mobile.network"))
+        self.networkMonitor = monitor
+    }
+
+    private func handleForegroundTransition() {
+        guard savedToken != nil else { return }
+        // If we were connected but SSE might have been killed in background, check and reconnect
+        if state == .connected {
+            // SSE may have been silently disconnected — re-establish
+            if sseClient == nil {
+                Self.logger.info("Foreground transition: SSE client missing, reconnecting")
+                connectSSE()
+            }
+        } else if state == .paired || state == .disconnected {
+            Self.logger.info("Foreground transition: not connected, starting discovery")
+            startDiscovery()
+        }
     }
 
     private func observeNotificationActions() {
@@ -89,7 +191,7 @@ final class ConnectionManager: ObservableObject {
                 guard !Task.isCancelled, let resolution else { continue }
                 do {
                     try await self?.postResolution(requestID: resolution.requestID, action: resolution.action)
-                    self?.markEventResolved(requestID: resolution.requestID)
+                    self?.markEventResolved(requestID: resolution.requestID, action: resolution.action)
                 } catch {
                     Self.logger.error("Failed to post resolution from notification: \(error.localizedDescription)")
                 }
@@ -119,12 +221,13 @@ final class ConnectionManager: ObservableObject {
         reconnectTask = nil
         discoveryObservation?.cancel()
         discoveryObservation = nil
-        resolutionObservation?.cancel()
-        resolutionObservation = nil
         savedToken = nil
         savedMacName = nil
+        pairedAt = nil
         resolvedURL = nil
         connectedMacName = nil
+        connectionError = nil
+        recentEvents.removeAll()
         state = .disconnected
     }
 
@@ -152,6 +255,7 @@ final class ConnectionManager: ObservableObject {
             let pairResponse = try JSONDecoder().decode(WatchPairResponse.self, from: data)
             savedToken = pairResponse.token
             savedMacName = mac.name
+            pairedAt = Date()
             connectedMacName = mac.name
             state = .paired
             showPairing = false
@@ -184,14 +288,20 @@ final class ConnectionManager: ObservableObject {
         client.onDisconnect = { [weak self] in
             self?.handleSSEDisconnect()
         }
+        client.onUnauthorized = { [weak self] in
+            Self.logger.warning("SSE 401 — token expired")
+            self?.handleTokenExpired()
+        }
 
         self.sseClient = client
         client.connect()
         state = .connected
+        connectionError = nil
         Self.logger.info("SSE connected")
     }
 
     private func handleSSEEvent(eventType: String, data: Data) {
+        connectionError = nil
         let decoder = JSONDecoder()
 
         let event: WatchEvent?
@@ -200,7 +310,9 @@ final class ConnectionManager: ObservableObject {
         case "permissionRequested":
             if let e = try? decoder.decode(WatchPermissionEvent.self, from: data) {
                 event = .from(e)
-                notificationManager?.sendPermissionNotification(e)
+                if notifyPermissions {
+                    notificationManager?.sendPermissionNotification(e)
+                }
                 Self.logger.info("Permission requested: \(e.title)")
             } else {
                 event = nil
@@ -209,7 +321,9 @@ final class ConnectionManager: ObservableObject {
         case "questionAsked":
             if let e = try? decoder.decode(WatchQuestionEvent.self, from: data) {
                 event = .from(e)
-                notificationManager?.sendQuestionNotification(e)
+                if notifyQuestions {
+                    notificationManager?.sendQuestionNotification(e)
+                }
                 Self.logger.info("Question asked: \(e.title)")
             } else {
                 event = nil
@@ -218,7 +332,9 @@ final class ConnectionManager: ObservableObject {
         case "sessionCompleted":
             if let e = try? decoder.decode(WatchCompletionEvent.self, from: data) {
                 event = .from(e)
-                notificationManager?.sendCompletionNotification(e)
+                if notifyCompletions {
+                    notificationManager?.sendCompletionNotification(e, silent: silentCompletions)
+                }
                 Self.logger.info("Session completed: \(e.summary)")
             } else {
                 event = nil
@@ -245,8 +361,9 @@ final class ConnectionManager: ObservableObject {
     }
 
     private func handleSSEDisconnect() {
-        guard state == .connected else { return }
+        guard state == .connected || state == .paired else { return }
         state = .paired
+        connectionError = "连接中断，正在重连..."
         Self.logger.info("SSE disconnected, will attempt reconnect")
         scheduleReconnect()
     }
@@ -262,9 +379,11 @@ final class ConnectionManager: ObservableObject {
     }
 
     /// Marks a recent event as resolved by requestID.
-    func markEventResolved(requestID: String) {
+    func markEventResolved(requestID: String, action: String? = nil) {
         if let index = recentEvents.firstIndex(where: { $0.requestID == requestID }) {
             recentEvents[index].isResolved = true
+            recentEvents[index].resolvedAt = Date()
+            recentEvents[index].resolvedAction = action
         }
     }
 
@@ -381,11 +500,32 @@ final class ConnectionManager: ObservableObject {
         request.httpBody = try JSONEncoder().encode(body)
 
         let (_, response) = try await URLSession.shared.data(for: request)
-        guard let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 else {
-            throw PairingError.serverError((response as? HTTPURLResponse)?.statusCode ?? 0)
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw PairingError.invalidResponse
         }
 
-        Self.logger.info("Resolution posted: \(requestID) → \(action)")
+        switch httpResponse.statusCode {
+        case 200:
+            Self.logger.info("Resolution posted: \(requestID) → \(action)")
+        case 401:
+            // Token expired or revoked — clear credentials and prompt re-pairing
+            Self.logger.warning("Token expired (401), clearing credentials")
+            handleTokenExpired()
+            throw PairingError.tokenExpired
+        default:
+            throw PairingError.serverError(httpResponse.statusCode)
+        }
+    }
+
+    /// Handle token expiry: disconnect SSE, clear saved token, update UI.
+    private func handleTokenExpired() {
+        sseClient?.disconnect()
+        sseClient = nil
+        reconnectTask?.cancel()
+        reconnectTask = nil
+        savedToken = nil
+        state = .disconnected
+        connectionError = "配对已过期，请重新配对"
     }
 }
 
@@ -398,15 +538,17 @@ enum PairingError: LocalizedError {
     case serverError(Int)
     case resolutionFailed
     case notConnected
+    case tokenExpired
 
     var errorDescription: String? {
         switch self {
-        case .invalidCode: return "配对码错误"
-        case .codeExpired: return "配对码已过期，请在 Mac 上重新生成"
+        case .invalidCode: return "配对码错误，请检查后重试"
+        case .codeExpired: return "配对码已过期，请在 Mac 上刷新配对码后重新输入"
         case .invalidResponse: return "服务器响应异常"
         case let .serverError(code): return "服务器错误 (\(code))"
         case .resolutionFailed: return "无法解析 Mac 地址"
         case .notConnected: return "未连接到 Mac"
+        case .tokenExpired: return "配对已过期，请重新配对"
         }
     }
 }

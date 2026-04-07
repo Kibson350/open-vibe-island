@@ -153,6 +153,75 @@ final class AppModel {
     @ObservationIgnored
     var openSettingsWindow: (() -> Void)?
 
+    // MARK: - Watch Notification
+
+    private static let watchNotificationEnabledKey = "watch.notification.enabled"
+
+    var watchNotificationEnabled: Bool = false {
+        didSet {
+            guard watchNotificationEnabled != oldValue else { return }
+            UserDefaults.standard.set(watchNotificationEnabled, forKey: Self.watchNotificationEnabledKey)
+            if watchNotificationEnabled {
+                startWatchRelay()
+            } else {
+                stopWatchRelay()
+            }
+        }
+    }
+
+    @ObservationIgnored
+    private(set) var watchRelay: WatchNotificationRelay?
+
+    /// Current pairing code for display in the settings UI.
+    var watchPairingCode: String {
+        watchRelay?.endpoint.currentCode() ?? "----"
+    }
+
+    /// Number of currently connected iPhone SSE clients.
+    var watchConnectedDevices: Int {
+        // Placeholder — endpoint doesn't expose count yet
+        0
+    }
+
+    private func startWatchRelay() {
+        guard watchRelay == nil else { return }
+        let relay = WatchNotificationRelay()
+        setupWatchRelayCallbacks(relay)
+        relay.start()
+        self.watchRelay = relay
+    }
+
+    /// Wire up resolution callbacks so Watch/iPhone actions flow back to the bridge.
+    private func setupWatchRelayCallbacks(_ relay: WatchNotificationRelay) {
+        relay.onResolvePermission = { [weak self] sessionID, approved in
+            Task { @MainActor [weak self] in
+                self?.approvePermission(for: sessionID, approved: approved)
+            }
+        }
+
+        relay.onAnswerQuestion = { [weak self] sessionID, answer in
+            Task { @MainActor [weak self] in
+                self?.answerQuestion(
+                    for: sessionID,
+                    answer: QuestionPromptResponse(answer: answer)
+                )
+            }
+        }
+
+        relay.endpoint.activeSessionCountProvider = { [weak self] in
+            // Safe to call from any queue — reads a snapshot count.
+            guard let self else { return 0 }
+            return MainActor.assumeIsolated {
+                self.state.sessions.count
+            }
+        }
+    }
+
+    private func stopWatchRelay() {
+        watchRelay?.stop()
+        watchRelay = nil
+    }
+
     var ignoresPointerExitDuringHarness = false
     var disablesOverlayEventMonitoringDuringHarness = false
 
@@ -188,6 +257,10 @@ final class AppModel {
         isSoundMuted = UserDefaults.standard.bool(forKey: Self.soundMutedDefaultsKey)
         selectedSoundName = NotificationSoundService.selectedSoundName
         showDockIcon = UserDefaults.standard.bool(forKey: Self.showDockIconDefaultsKey)
+        watchNotificationEnabled = UserDefaults.standard.bool(forKey: Self.watchNotificationEnabledKey)
+        if watchNotificationEnabled {
+            startWatchRelay()
+        }
 
         overlay.appModel = self
         overlay.restoreDisplayPreference()
@@ -778,6 +851,26 @@ final class AppModel {
         refreshOverlayPlacementIfVisible()
         discovery.scheduleCodexSessionPersistence()
         discovery.scheduleClaudeSessionPersistence()
+
+        // Push relevant events to the Watch/iPhone via the relay
+        if let relay = watchRelay {
+            let eventSessionID: String? = {
+                switch event {
+                case let .sessionStarted(p): return p.sessionID
+                case let .activityUpdated(p): return p.sessionID
+                case let .permissionRequested(p): return p.sessionID
+                case let .questionAsked(p): return p.sessionID
+                case let .sessionCompleted(p): return p.sessionID
+                case let .jumpTargetUpdated(p): return p.sessionID
+                case let .sessionMetadataUpdated(p): return p.sessionID
+                case let .claudeSessionMetadataUpdated(p): return p.sessionID
+                case let .openCodeSessionMetadataUpdated(p): return p.sessionID
+                case let .actionableStateResolved(p): return p.sessionID
+                }
+            }()
+            let session = eventSessionID.flatMap { state.session(id: $0) }
+            relay.notifyEvent(event, session: session)
+        }
 
         if updateLastActionMessage {
             lastActionMessage = describe(event)
