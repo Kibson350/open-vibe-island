@@ -4,43 +4,34 @@ Thank you for your interest in contributing to Open Island!
 
 感谢你对 Open Island 项目的关注与贡献！
 
-## About the Project / 项目简介
+---
 
-Open Island is a native macOS companion app for AI coding agents. It sits in the notch/top-bar area and monitors local agent sessions, surfaces permission requests, answers questions, and provides "jump back" to the correct terminal context. Local-first, no server dependency.
+## Human Parts
 
-Open Island 是一个原生 macOS 应用，作为 AI 编程代理的桌面伴侣。它驻留在刘海/顶栏区域，监控本地代理会话、展示权限请求、回答问题，并提供"跳转回"对应终端上下文的能力。完全本地运行，无需服务端。
+*This section is written for humans.*
 
-**Supported agents / 支持的代理**: Codex, Claude Code
+*这部分内容是给人类阅读的。*
 
-**Supported terminals / 支持的终端**: Terminal.app, Ghostty
+We welcome all good ideas. If you have the will, you can turn any idea into code for this project and have it used by others.
 
-## Prerequisites / 环境要求
+我们欢迎一切好的想法，只要你有意愿，你可以把任何想法变成这个项目的代码，并被其他人使用。
 
-- macOS 14+
-- Swift 6.2+
-- Xcode (for app target)
+All code in this project is produced by AI. You should not contribute human-written code either.
 
-## Build & Test / 构建与测试
+本项目所有代码均由 AI 产出，因此你也不应该贡献人类产出的代码。
 
-```bash
-# Build the project / 构建项目
-swift build
+### Getting Started / 如何开始
 
-# Run tests / 运行测试
-swift test
+We've put effort into making it easy for AI to iterate on this project. To start contributing, paste the following into your code agent:
 
-# Run the app / 运行应用
-swift run OpenIslandApp
+我们在让 AI 更好迭代这个项目上做了一些功夫。想要开始贡献，你需要在你的 code agent 中输入下面这段话：
 
-# Build hook binary (release) / 构建 Hook 可执行文件（Release）
-swift build -c release --product OpenIslandHooks
+```
+帮我阅读这个项目的 CONTRIBUTING.md 并说明我应该如何迭代这个项目，
+然后向我列出你已知的信息，例如发布构建/仓库架构/代码规范/在仓库中的PR规范等等。
 ```
 
-You can also open `Package.swift` in Xcode to build and run the app target directly.
-
-也可以在 Xcode 中打开 `Package.swift`，直接构建和运行应用。
-
-## Report a Bug via Your Code Agent / 用你的代理上报 Bug
+### Report a Bug via Your Code Agent / 用你的代理上报 Bug
 
 If you run into a problem, copy the prompt below into your code agent (Claude Code, Codex, etc.) and it will automatically collect environment info and create a well-structured issue for you.
 
@@ -76,7 +67,7 @@ Repository: Octane0411/open-vibe-island
 
 </details>
 
-## Request a Feature via Your Code Agent / 用你的代理提交功能建议
+### Request a Feature via Your Code Agent / 用你的代理提交功能建议
 
 Have an idea? Let your agent draft the proposal for you.
 
@@ -104,3 +95,54 @@ Repository: Octane0411/open-vibe-island
 ```
 
 </details>
+
+---
+
+## Agent Parts
+
+*This section is written for agents.*
+
+*这部分内容是给 agent 阅读的。*
+
+### About the Project / 项目简介
+
+Open Island is a native macOS companion app for AI coding agents. It sits in the notch/top-bar area and monitors local agent sessions, surfaces permission requests, answers questions, and provides "jump back" to the correct terminal context. Local-first, no server dependency.
+
+Open Island 是一个原生 macOS 应用，作为 AI 编程代理的桌面伴侣。它驻留在刘海/顶栏区域，监控本地代理会话、展示权限请求、回答问题，并提供"跳转回"对应终端上下文的能力。完全本地运行，无需服务端。
+
+**Supported agents / 支持的代理**: Codex, Claude Code
+
+**Supported terminals / 支持的终端**: Terminal.app, Ghostty
+
+### Prerequisites / 环境要求
+
+- macOS 14+
+- Swift 6.2+
+- Xcode (for app target)
+
+### Build & Test / 构建与测试
+
+```bash
+# Build the project / 构建项目
+swift build
+
+# Run tests / 运行测试
+swift test
+
+# Run the app / 运行应用
+swift run OpenIslandApp
+
+# Build hook binary (release) / 构建 Hook 可执行文件（Release）
+swift build -c release --product OpenIslandHooks
+```
+
+You can also open `Package.swift` in Xcode to build and run the app target directly.
+
+也可以在 Xcode 中打开 `Package.swift`，直接构建和运行应用。
+
+### Where to Go Next / 进一步了解
+
+- [`CLAUDE.md`](CLAUDE.md) — Architecture, conventions, branching rules, commit policy, and release workflow.
+- [`docs/architecture.md`](docs/architecture.md) — System design and engineering decisions.
+- [`docs/product.md`](docs/product.md) — Product scope and MVP boundary.
+- [`docs/hooks.md`](docs/hooks.md) — Supported hook events, payload fields, and directive protocol.
