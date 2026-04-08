@@ -159,7 +159,7 @@ public final class BridgeServer: @unchecked Sendable {
     /// Pushes the authoritative session state from AppModel so BridgeServer
     /// can read session data without maintaining its own copy.
     public func updateStateSnapshot(_ snapshot: SessionState) {
-        queue.sync {
+        queue.async { [self] in
             stateSnapshot = snapshot
             localState = snapshot
         }

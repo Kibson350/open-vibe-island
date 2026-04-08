@@ -150,23 +150,30 @@ final class OverlayPanelController {
         }
 
         let windowFrame = panelFrame(for: model, on: screen)
-        if animated {
-            let status = model?.notchStatus
-            NSAnimationContext.runAnimationGroup { context in
-                switch status {
-                case .opened:
-                    context.duration = 0.30
-                case .closed, .popping:
-                    context.duration = 0.25
-                case nil:
-                    context.duration = 0
+
+        // Skip frame update entirely when the panel is already at the target
+        // frame — avoids unnecessary AppKit animation context overhead during
+        // periodic reconciliation cycles.
+        let needsFrameUpdate = panel.frame != windowFrame
+        if needsFrameUpdate {
+            if animated {
+                let status = model?.notchStatus
+                NSAnimationContext.runAnimationGroup { context in
+                    switch status {
+                    case .opened:
+                        context.duration = 0.30
+                    case .closed, .popping:
+                        context.duration = 0.25
+                    case nil:
+                        context.duration = 0
+                    }
+                    context.timingFunction = CAMediaTimingFunction(controlPoints: 0.22, 1.0, 0.36, 1.0)
+                    context.allowsImplicitAnimation = true
+                    panel.animator().setFrame(windowFrame, display: true)
                 }
-                context.timingFunction = CAMediaTimingFunction(controlPoints: 0.22, 1.0, 0.36, 1.0)
-                context.allowsImplicitAnimation = true
-                panel.animator().setFrame(windowFrame, display: true)
+            } else {
+                panel.setFrame(windowFrame, display: true)
             }
-        } else {
-            panel.setFrame(windowFrame, display: true)
         }
         computeNotchRect(screen: screen)
 
@@ -587,6 +594,7 @@ private final class NotchPanel: NSPanel {
 
 final class NotchHostingView<Content: View>: NSHostingView<Content> {
     weak var notchController: OverlayPanelController?
+    private var hasDisabledScrollers = false
 
     override var isOpaque: Bool {
         false
@@ -649,7 +657,11 @@ final class NotchHostingView<Content: View>: NSHostingView<Content> {
         super.layout()
         // NSHostingView wraps content in an internal NSScrollView.
         // Disable its scrollers to prevent a thick system scrollbar.
-        disableInternalScrollers(in: self)
+        // Only traverse once — the internal hierarchy is stable after first layout.
+        if !hasDisabledScrollers {
+            hasDisabledScrollers = true
+            disableInternalScrollers(in: self)
+        }
     }
 
     private func disableInternalScrollers(in view: NSView) {
