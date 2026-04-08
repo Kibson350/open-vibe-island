@@ -466,6 +466,10 @@ final class AppModel {
         bridgeTask?.cancel()
         bridgeReconnectTask?.cancel()
 
+        // Explicitly disconnect the old client so its DispatchSource is
+        // cancelled deterministically rather than relying on dealloc timing.
+        bridgeClient.disconnect()
+
         // Create a fresh client for each connection attempt so we don't
         // have to worry about stale file-descriptor state.
         let client = LocalBridgeClient()
@@ -481,14 +485,18 @@ final class AppModel {
             return
         }
 
-        Task { [weak self] in
+        // A single task handles both registration and event consumption so
+        // there is no untracked task that could race with a reconnect.
+        bridgeTask = Task { [weak self] in
             guard let self else { return }
+
             do {
                 try await client.send(.registerClient(role: .observer))
                 self.isBridgeReady = true
                 self.lastActionMessage = "Bridge ready. Waiting for Claude and Codex hook events."
                 self.harnessRuntimeMonitor?.recordMilestone("bridgeReady", message: self.lastActionMessage)
             } catch {
+                guard !Task.isCancelled else { return }
                 self.isBridgeReady = false
                 self.lastActionMessage = "Failed to register bridge observer: \(error.localizedDescription)"
                 self.harnessRuntimeMonitor?.recordMilestone(
@@ -496,11 +504,9 @@ final class AppModel {
                     message: self.lastActionMessage
                 )
                 self.scheduleBridgeReconnect()
+                return
             }
-        }
 
-        bridgeTask = Task { [weak self] in
-            guard let self else { return }
             do {
                 for try await event in stream {
                     self.applyTrackedEvent(event)
