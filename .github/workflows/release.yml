@@ -7,6 +7,7 @@ on:
 
 permissions:
   contents: write
+  pull-requests: write
 
 jobs:
   build-and-release:
@@ -178,18 +179,25 @@ jobs:
             "${{ steps.sparkle_sign.outputs.length }}"
           cat appcast.xml
 
-      - name: Commit and push appcast.xml to main
+      - name: Update appcast.xml via PR
         if: steps.sparkle_sign.outputs.signed == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          branch="chore/appcast-v${{ steps.version.outputs.version }}"
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git fetch origin main
-          git checkout main
+          git checkout -b "$branch" origin/main
           git add appcast.xml
           git commit -m "chore: update appcast.xml for v${{ steps.version.outputs.version }}"
-          git push origin main
+          git push origin "$branch"
+          gh pr create \
+            --base main \
+            --head "$branch" \
+            --title "chore: update appcast.xml for v${{ steps.version.outputs.version }}" \
+            --body "Automated appcast.xml update from release workflow."
+          gh pr merge "$branch" --merge --auto
 
       - name: Create GitHub Release
         env:
