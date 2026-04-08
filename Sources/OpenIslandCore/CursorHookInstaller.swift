@@ -114,10 +114,15 @@ public enum CursorHookInstaller {
 
         let contents = rootObject.isEmpty ? nil : try serialize(rootObject)
 
+        let managedStillPresent = hooksObject.contains { _, value in
+            guard let entries = value as? [[String: Any]] else { return false }
+            return entries.contains { isManagedHook($0, managedCommand: managedCommand) }
+        }
+
         return CursorHookFileMutation(
             contents: contents,
             changed: mutated || contents != existingData,
-            managedHooksPresent: mutated
+            managedHooksPresent: managedStillPresent
         )
     }
 
