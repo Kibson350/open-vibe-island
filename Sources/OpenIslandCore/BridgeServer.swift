@@ -1678,21 +1678,26 @@ public final class BridgeServer: @unchecked Sendable {
             return
         }
 
-        // Try to extract the real task ID from the tool response
+        // Try to extract the real task ID from the tool response.
+        // Actual response format: {"task": {"id": "7", "subject": "..."}}
         let realID: String? = {
             switch response {
             case let .object(obj):
-                // Try common field names: "taskId", "task_id", "id"
+                // Primary: nested under "task" object — {"task": {"id": "7"}}
+                if case let .object(taskObj) = obj["task"],
+                   let idVal = taskObj["id"] ?? taskObj["taskId"] {
+                    if case let .string(s) = idVal { return s }
+                    if case let .number(n) = idVal { return String(Int(n)) }
+                }
+                // Fallback: top-level "taskId", "task_id", "id"
                 return (obj["taskId"] ?? obj["task_id"] ?? obj["id"]).flatMap {
                     if case let .string(s) = $0 { s } else { nil }
                 }
             case let .string(s):
-                // Response is often "Task #<id> created successfully: <title>"
-                // Extract the ID between "Task #" and the next space/non-alnum
+                // Fallback for string responses like "Task #7 created successfully"
                 if let idRange = s.range(of: #"(?<=Task #)\S+"#, options: .regularExpression) {
                     return String(s[idRange])
                 }
-                // Fallback: if the response is just a plain ID
                 let trimmed = s.trimmingCharacters(in: .whitespacesAndNewlines)
                 return trimmed.isEmpty ? nil : trimmed
             default:
