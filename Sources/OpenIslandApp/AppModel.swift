@@ -75,11 +75,16 @@ final class AppModel {
     var isOpenCodeSetupBusy: Bool { hooks.isOpenCodeSetupBusy }
     var openCodePluginStatusTitle: String { hooks.openCodePluginStatusTitle }
     var openCodePluginStatusSummary: String { hooks.openCodePluginStatusSummary }
+    var cursorHooksInstalled: Bool { hooks.cursorHooksInstalled }
+    var isCursorHookSetupBusy: Bool { hooks.isCursorHookSetupBusy }
+    var cursorHookStatusTitle: String { hooks.cursorHookStatusTitle }
+    var cursorHookStatusSummary: String { hooks.cursorHookStatusSummary }
     var codexHookStatusTitle: String { hooks.codexHookStatusTitle }
     var codexHookStatusSummary: String { hooks.codexHookStatusSummary }
     func refreshCodexHookStatus() { hooks.refreshCodexHookStatus() }
     func refreshClaudeHookStatus() { hooks.refreshClaudeHookStatus() }
     func refreshOpenCodePluginStatus() { hooks.refreshOpenCodePluginStatus() }
+    func refreshCursorHookStatus() { hooks.refreshCursorHookStatus() }
     func refreshClaudeUsageState() { hooks.refreshClaudeUsageState() }
     func refreshCodexUsageState() { hooks.refreshCodexUsageState() }
     func installCodexHooks() { hooks.installCodexHooks() }
@@ -88,6 +93,8 @@ final class AppModel {
     func uninstallClaudeHooks() { hooks.uninstallClaudeHooks() }
     func installOpenCodePlugin() { hooks.installOpenCodePlugin() }
     func uninstallOpenCodePlugin() { hooks.uninstallOpenCodePlugin() }
+    func installCursorHooks() { hooks.installCursorHooks() }
+    func uninstallCursorHooks() { hooks.uninstallCursorHooks() }
     func installClaudeUsageBridge() { hooks.installClaudeUsageBridge() }
     func uninstallClaudeUsageBridge() { hooks.uninstallClaudeUsageBridge() }
     var isBridgeReady = false
@@ -243,6 +250,7 @@ final class AppModel {
         monitoring.onPersistenceNeeded = { [weak self] in
             self?.discovery.scheduleCodexSessionPersistence()
             self?.discovery.scheduleClaudeSessionPersistence()
+            self?.discovery.scheduleCursorSessionPersistence()
         }
 
         refreshOverlayDisplayConfiguration()
@@ -420,6 +428,7 @@ final class AppModel {
             hooks.refreshCodexHookStatus()
             hooks.refreshClaudeHookStatus()
             hooks.refreshOpenCodePluginStatus()
+            hooks.refreshCursorHookStatus()
             hooks.refreshClaudeUsageState()
             hooks.startClaudeUsageMonitoringIfNeeded()
             hooks.refreshCodexUsageState()
@@ -783,6 +792,7 @@ final class AppModel {
         refreshOverlayPlacementIfVisible()
         discovery.scheduleCodexSessionPersistence()
         discovery.scheduleClaudeSessionPersistence()
+        discovery.scheduleCursorSessionPersistence()
 
         if updateLastActionMessage {
             lastActionMessage = describe(event)
@@ -829,6 +839,7 @@ final class AppModel {
                 if !self.claudeHooksInstalled { self.installClaudeHooks() }
                 if !self.codexHooksInstalled { self.installCodexHooks() }
                 if !self.openCodePluginInstalled { self.installOpenCodePlugin() }
+                if !self.cursorHooksInstalled { self.installCursorHooks() }
                 if !self.claudeUsageInstalled { self.installClaudeUsageBridge() }
             }
         }
