@@ -52,6 +52,10 @@ struct TerminalJumpService {
         ),
     ]
 
+    /// Bundle identifiers of terminal emulators that commonly host Zellij,
+    /// derived from `knownApps` so it stays in sync automatically.
+    private static let zellijParentTerminals = knownApps.map(\.bundleIdentifier)
+
     private static let ghosttyFocusSettleDelay = 0.08
     private static let ghosttyWindowActivationDelay = 0.04
     private static let ghosttyFocusAttempts = 3
@@ -87,6 +91,20 @@ struct TerminalJumpService {
             return !value.isEmpty
         }
         let appIsRunning = descriptor.map { appRunningChecker($0.bundleIdentifier) } ?? false
+
+        // Zellij is a terminal multiplexer, not a macOS .app. Handle it
+        // before the descriptor-based dispatch since it won't have one.
+        if target.terminalApp.lowercased() == "zellij" {
+            if jumpToZellijPane(target) {
+                return "Focused the matching Zellij pane."
+            }
+            // Fallback: activate whichever parent terminal is running.
+            if let parentBundleID = Self.zellijParentTerminals.first(where: { appRunningChecker($0) }) {
+                try openAction(["-b", parentBundleID])
+                return "Activated parent terminal. Zellij pane targeting could not find the pane."
+            }
+            throw TerminalJumpError.unsupportedTerminal("Zellij (no parent terminal found)")
+        }
 
         if let descriptor {
             switch descriptor.bundleIdentifier {
@@ -240,6 +258,122 @@ struct TerminalJumpService {
         }
 
         return nil
+    }
+
+    // MARK: - Zellij CLI-based jump
+
+    /// Parses the encoded `terminalSessionID` (format: `paneId:sessionName`)
+    /// and uses `zellij action` to switch to the tab containing that pane.
+    private func jumpToZellijPane(_ target: JumpTarget) -> Bool {
+        guard let encoded = target.terminalSessionID, !encoded.isEmpty else {
+            return false
+        }
+
+        let parts = encoded.split(separator: ":", maxSplits: 1)
+        let paneIDString = String(parts[0])
+        let sessionName = parts.count > 1 ? String(parts[1]) : nil
+
+        guard let paneID = Int(paneIDString) else {
+            return false
+        }
+
+        guard let zellijPath = resolveZellijPath() else {
+            return false
+        }
+
+        // Query all panes to find which tab contains our target pane.
+        guard let tabPosition = zellijTabPosition(
+            zellijPath: zellijPath,
+            sessionName: sessionName,
+            paneID: paneID
+        ) else {
+            return false
+        }
+
+        // Switch to the tab (1-indexed).
+        let goToTab = Process()
+        goToTab.executableURL = URL(fileURLWithPath: zellijPath)
+        if let sessionName, !sessionName.isEmpty {
+            goToTab.arguments = ["--session", sessionName, "action", "go-to-tab", "\(tabPosition + 1)"]
+        } else {
+            goToTab.arguments = ["action", "go-to-tab", "\(tabPosition + 1)"]
+        }
+        goToTab.standardOutput = FileHandle.nullDevice
+        goToTab.standardError = FileHandle.nullDevice
+        guard (try? goToTab.run()) != nil else { return false }
+        goToTab.waitUntilExit()
+
+        // Activate the parent terminal app window.
+        if let parentBundleID = Self.zellijParentTerminals.first(where: { appRunningChecker($0) }) {
+            try? openAction(["-b", parentBundleID])
+        }
+
+        return goToTab.terminationStatus == 0
+    }
+
+    private func resolveZellijPath() -> String? {
+        let candidates = [
+            NSHomeDirectory() + "/.local/bin/zellij",
+            "/usr/local/bin/zellij",
+            "/opt/homebrew/bin/zellij",
+        ]
+        if let found = candidates.first(where: { FileManager.default.isExecutableFile(atPath: $0) }) {
+            return found
+        }
+
+        // Fallback: which.
+        let whichTask = Process()
+        whichTask.executableURL = URL(fileURLWithPath: "/usr/bin/which")
+        whichTask.arguments = ["zellij"]
+        let pipe = Pipe()
+        whichTask.standardOutput = pipe
+        whichTask.standardError = FileHandle.nullDevice
+        guard (try? whichTask.run()) != nil else { return nil }
+        whichTask.waitUntilExit()
+        guard whichTask.terminationStatus == 0 else { return nil }
+        let path = String(data: pipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8)?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return path.isEmpty ? nil : path
+    }
+
+    private struct ZellijPaneInfo: Decodable {
+        let id: Int
+        let tabPosition: Int?
+
+        enum CodingKeys: String, CodingKey {
+            case id
+            case tabPosition = "tab_position"
+        }
+    }
+
+    /// Queries Zellij for pane info and returns the tab position of the given pane.
+    private func zellijTabPosition(
+        zellijPath: String,
+        sessionName: String?,
+        paneID: Int
+    ) -> Int? {
+        let task = Process()
+        task.executableURL = URL(fileURLWithPath: zellijPath)
+        var args: [String] = []
+        if let sessionName, !sessionName.isEmpty {
+            args += ["--session", sessionName]
+        }
+        args += ["action", "list-panes", "--json", "--tab"]
+        task.arguments = args
+
+        let outputPipe = Pipe()
+        task.standardOutput = outputPipe
+        task.standardError = FileHandle.nullDevice
+        guard (try? task.run()) != nil else { return nil }
+        task.waitUntilExit()
+        guard task.terminationStatus == 0 else { return nil }
+
+        let data = outputPipe.fileHandleForReading.readDataToEndOfFile()
+        guard let panes = try? JSONDecoder().decode([ZellijPaneInfo].self, from: data) else {
+            return nil
+        }
+
+        return panes.first(where: { $0.id == paneID })?.tabPosition
     }
 
     private func jumpToGhosttyTerminal(_ target: JumpTarget) throws -> Bool {

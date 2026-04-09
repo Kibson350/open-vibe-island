@@ -284,6 +284,10 @@ struct ActiveAgentProcessDiscovery {
             return "WezTerm"
         }
 
+        if lowered.hasSuffix("/zellij") {
+            return "Zellij"
+        }
+
         return nil
     }
 

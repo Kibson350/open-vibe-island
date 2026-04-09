@@ -212,8 +212,8 @@ public struct SessionState: Equatable, Sendable {
         if resolution.isApproved {
             session.phase = .running
             switch session.tool {
-            case .claudeCode:
-                session.summary = "Permission approved. Claude continued the tool."
+            case .claudeCode, .qoder, .factory, .codebuddy:
+                session.summary = "Permission approved. \(session.tool.displayName) continued the tool."
             case .openCode:
                 session.summary = "Permission approved. OpenCode continued the tool."
             default:
@@ -222,7 +222,7 @@ public struct SessionState: Equatable, Sendable {
         } else {
             session.phase = .completed
             switch session.tool {
-            case .claudeCode:
+            case .claudeCode, .qoder, .factory, .codebuddy:
                 session.summary = "Permission denied in Open Island."
             case .openCode:
                 session.summary = "Permission denied in Open Island."
@@ -310,9 +310,30 @@ public struct SessionState: Equatable, Sendable {
                 continue
             }
 
-            // Hook-managed sessions rely on hook lifecycle signals (SessionStart/
-            // SessionEnd) rather than process polling, so skip them here.
+            // Hook-managed sessions primarily rely on hook lifecycle signals
+            // (SessionStart / SessionEnd).  However, if the bridge becomes
+            // unavailable the SessionEnd hook can never arrive, leaving the
+            // session permanently stuck as visible.  As a fallback, we also
+            // check process liveness: when the agent process is confirmed dead
+            // by two consecutive polls we mark the session ended so it can be
+            // cleaned up.
             if session.isHookManaged {
+                if session.isSessionEnded {
+                    continue
+                }
+
+                if aliveSessionIDs.contains(id) {
+                    session.processNotSeenCount = 0
+                } else {
+                    session.processNotSeenCount += 1
+                    if session.processNotSeenCount >= 2 {
+                        session.isSessionEnded = true
+                        session.phase = .completed
+                        changed.insert(id)
+                    }
+                }
+
+                upsert(session)
                 continue
             }
 

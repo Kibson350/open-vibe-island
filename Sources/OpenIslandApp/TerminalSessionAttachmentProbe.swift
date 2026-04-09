@@ -731,6 +731,13 @@ struct TerminalSessionAttachmentProbe {
             terminalSessionID: snapshot.sessionID
         )
 
+        // Zellij runs inside Ghostty but has its own jump-back mechanism
+        // via pane IDs. Don't overwrite Zellij's terminal info with
+        // Ghostty's session ID, as it would break Zellij pane targeting.
+        if jumpTarget.terminalApp.lowercased() == "zellij" {
+            return nil
+        }
+
         var changed = !hadExistingJumpTarget
 
         if normalizedTerminalName(for: jumpTarget.terminalApp) != "ghostty" {
