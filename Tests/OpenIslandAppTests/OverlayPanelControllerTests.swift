@@ -60,10 +60,11 @@ struct OverlayPanelControllerTests {
     }
 
     @Test
-    func islandClosedHeightClampsToMenuBarHeightWhenSmallerThanNotch() {
-        // Defensive: if menu bar reserved < notch for some future model, don't exceed it.
+    func islandClosedHeightUsesNotchHeightEvenWhenMenuBarIsShorter() {
+        // When menu bar reserved < notch (e.g. auto-hide menu bar), the island must
+        // still match the physical notch height to avoid a visible gap.
         let height = NSScreen.computeIslandClosedHeight(safeAreaInsetsTop: 37, topStatusBarHeight: 34)
-        #expect(height == 34)
+        #expect(height == 37)
     }
 
     @Test
