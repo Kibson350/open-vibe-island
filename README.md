@@ -31,7 +31,7 @@ This section is written for humans.
 
 ### What This Is
 
-An open-source [Vibe Island](https://vibeisland.app/) alternative for heavy code-agent users on macOS. Currently supports **Claude Code**, **Codex**, **OpenCode**, **Qoder**, **Factory**, and **CodeBuddy**, with terminal integration for **Terminal.app**, **Ghostty**, **cmux**, **Kaku**, **WezTerm**, **iTerm2**, and **Zellij**, plus fallback detection for Warp.
+An open-source [Vibe Island](https://vibeisland.app/) alternative for heavy code-agent users on macOS. Currently supports **Claude Code**, **Codex**, **Cursor**, **OpenCode**, **Qoder**, **Factory**, and **CodeBuddy**, with terminal integration for **Terminal.app**, **Ghostty**, **cmux**, **Kaku**, **WezTerm**, **iTerm2**, and **Zellij**, plus fallback detection for Warp.
 
 This is a community project. We provide the basics: code agent communication, a mac island app shell, and some fundamental features. We welcome anyone to build on top of this and turn ideas into real features for everyone. Read the [Roadmap](docs/roadmap.md) and [Contributing](CONTRIBUTING.md) docs for more info.
 
@@ -61,7 +61,7 @@ We welcome any issues and pull requests. We are also looking for others to join 
 
 ### Notes
 
-This app may install hooks for Claude Code or Codex, so you may see hook-related output inside those sessions. See [docs/hooks.md](docs/hooks.md) for the full list of supported hook events and the directive protocol.
+This app may install hooks for Claude Code, Codex, or Cursor, so you may see hook-related output inside those sessions. See [docs/hooks.md](docs/hooks.md) for the full list of supported hook events and the directive protocol.
 
 ### Feature Status
 
@@ -75,6 +75,7 @@ This app may install hooks for Claude Code or Codex, so you may see hook-related
 | **Qoder** | Supported | Claude Code fork — same hook format, config at `~/.qoder/settings.json` |
 | **Factory** | Supported | Claude Code fork — same hook format, config at `~/.factory/settings.json` |
 | **CodeBuddy** | Supported | Claude Code fork — same hook format, config at `~/.codebuddy/settings.json` |
+| **Cursor** | Supported | Hook integration via `~/.cursor/hooks.json`, session tracking, workspace jump-back |
 | **Gemini CLI** | Planned | — |
 
 #### Supported Terminals
@@ -190,6 +191,7 @@ Developers who already live in the terminal and want a better way to work with c
 - **Qoder** — Claude Code fork. Same hook format and events via `~/.qoder/settings.json`. Use `--source qoder` with the hooks binary.
 - **Factory** — Claude Code fork. Same hook format and events via `~/.factory/settings.json`. Use `--source factory` with the hooks binary.
 - **CodeBuddy** — Claude Code fork. Same hook format and events via `~/.codebuddy/settings.json`. Use `--source codebuddy` with the hooks binary.
+- **Cursor** — Hook-based integration via `~/.cursor/hooks.json`. Receives `beforeSubmitPrompt`, `beforeShellExecution`, `beforeMCPExecution`, `beforeReadFile`, `afterFileEdit`, and `stop` events. Session persistence across app launches. Workspace jump-back via `cursor -r`. Use `--source cursor` with the hooks binary.
 
 ### Terminal Support
 
