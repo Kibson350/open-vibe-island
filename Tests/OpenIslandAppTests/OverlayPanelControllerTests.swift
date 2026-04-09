@@ -4,27 +4,30 @@ import Testing
 
 struct OverlayPanelControllerTests {
     @Test
-    func closedSurfaceRectRemovesPanelShadowInsets() {
-        let panelFrame = NSRect(x: 100, y: 900, width: 320, height: 38)
+    func closedSurfaceRectCentersOnNotch() {
+        let notchRect = NSRect(x: 200, y: 900, width: 200, height: 38)
+        let closedWidth: CGFloat = 320
 
         let rect = OverlayPanelController.closedSurfaceRect(
-            for: panelFrame,
-            shadowInsets: (horizontal: 12, bottom: 14)
+            notchRect: notchRect,
+            closedWidth: closedWidth
         )
 
-        #expect(rect.minX == 112)
-        #expect(rect.minY == 914)
-        #expect(rect.width == 296)
-        #expect(rect.height == 24)
+        // Centered on notch midX (300), width 320
+        #expect(rect.minX == 140)
+        #expect(rect.minY == 900)
+        #expect(rect.width == 320)
+        #expect(rect.height == 38)
     }
 
     @Test
-    func closedSurfaceRectKeepsFullVisibleWidthInteractive() {
-        let panelFrame = NSRect(x: 500, y: 1_000, width: 420, height: 38)
+    func closedSurfaceRectHitTestingBoundary() {
+        let notchRect = NSRect(x: 400, y: 1_000, width: 200, height: 38)
+        let closedWidth: CGFloat = 420
 
         let rect = OverlayPanelController.closedSurfaceRect(
-            for: panelFrame,
-            shadowInsets: (horizontal: 12, bottom: 14)
+            notchRect: notchRect,
+            closedWidth: closedWidth
         )
 
         #expect(rect.contains(NSPoint(x: rect.minX + 2, y: rect.midY)))
