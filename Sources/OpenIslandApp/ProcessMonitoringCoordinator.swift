@@ -57,16 +57,20 @@ final class ProcessMonitoringCoordinator {
             while !Task.isCancelled {
                 let discovery = self.activeAgentProcessDiscovery
                 let probe = self.terminalSessionAttachmentProbe
-                let (snapshots, ghosttyAvail, terminalAvail) = await Task.detached(priority: .utility) {
+                let resolver = self.terminalJumpTargetResolver
+                let liveSessions = self.state.sessions.filter(\.isTrackedLiveSession)
+                let (snapshots, ghosttyAvail, terminalAvail, jumpTargets) = await Task.detached(priority: .utility) {
                     let s = discovery.discover()
                     let g = probe.ghosttySnapshotAvailability()
                     let t = probe.terminalSnapshotAvailability()
-                    return (s, g, t)
+                    let j = resolver.resolveJumpTargets(for: liveSessions, activeProcesses: s)
+                    return (s, g, t, j)
                 }.value
                 self.reconcileSessionAttachments(
                     activeProcesses: snapshots,
                     ghosttyAvailability: ghosttyAvail,
-                    terminalAvailability: terminalAvail
+                    terminalAvailability: terminalAvail,
+                    preResolvedJumpTargets: jumpTargets
                 )
                 try? await Task.sleep(for: .seconds(2))
             }
@@ -78,7 +82,8 @@ final class ProcessMonitoringCoordinator {
     func reconcileSessionAttachments(
         activeProcesses: [ActiveProcessSnapshot]? = nil,
         ghosttyAvailability: TerminalSessionAttachmentProbe.SnapshotAvailability<TerminalSessionAttachmentProbe.GhosttyTerminalSnapshot>? = nil,
-        terminalAvailability: TerminalSessionAttachmentProbe.SnapshotAvailability<TerminalSessionAttachmentProbe.TerminalTabSnapshot>? = nil
+        terminalAvailability: TerminalSessionAttachmentProbe.SnapshotAvailability<TerminalSessionAttachmentProbe.TerminalTabSnapshot>? = nil,
+        preResolvedJumpTargets: [String: JumpTarget]? = nil
     ) {
         let activeProcesses = activeProcesses ?? activeAgentProcessDiscovery.discover()
 
@@ -146,10 +151,13 @@ final class ProcessMonitoringCoordinator {
         _ = local.markProcessLiveness(aliveSessionIDs: aliveIDs)
 
         // Resolve jump targets via the new focused resolver.
-        let resolverJumpTargets = terminalJumpTargetResolver.resolveJumpTargets(
-            for: local.sessions.filter(\.isTrackedLiveSession),
-            activeProcesses: activeProcesses
-        )
+        // When pre-resolved targets are provided (computed off-main-actor),
+        // use them directly to avoid blocking the main thread with AppleScript calls.
+        let resolverJumpTargets = preResolvedJumpTargets
+            ?? terminalJumpTargetResolver.resolveJumpTargets(
+                for: local.sessions.filter(\.isTrackedLiveSession),
+                activeProcesses: activeProcesses
+            )
         if !resolverJumpTargets.isEmpty {
             _ = local.reconcileJumpTargets(resolverJumpTargets)
         }

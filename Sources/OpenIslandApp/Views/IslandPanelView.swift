@@ -1102,7 +1102,8 @@ private struct IslandSessionRow: View {
             RoundedRectangle(cornerRadius: isActionable ? 24 : 22, style: .continuous)
                 .strokeBorder(actionableBorderColor)
         )
-        .shadow(color: isHighlighted ? .black.opacity(0.24) : .clear, radius: 8, y: 6)
+        .compositingGroup()
+        .shadow(color: .black.opacity(0.24), radius: isHighlighted ? 8 : 0, y: isHighlighted ? 6 : 0)
         .overlay(
             Group {
                 if !isActionable {
@@ -1115,12 +1116,11 @@ private struct IslandSessionRow: View {
         )
         .modifier(ConditionalDrawingGroup(enabled: useDrawingGroup && !isActionable))
         .contentShape(RoundedRectangle(cornerRadius: isActionable ? 24 : 22, style: .continuous))
+        .animation(.easeInOut(duration: 0.15), value: isHighlighted)
         .onTapGesture(perform: handlePrimaryTap)
         .onHover { hovering in
             guard isInteractive else { return }
-            withAnimation(.easeInOut(duration: 0.15)) {
-                isHighlighted = hovering
-            }
+            isHighlighted = hovering
         }
         .onChange(of: isInteractive) { _, interactive in
             if !interactive {
