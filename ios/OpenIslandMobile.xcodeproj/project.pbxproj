@@ -28,6 +28,8 @@
 		WB000007 /* EventCardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = WA000005 /* EventCardView.swift */; };
 		IC000001 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = IC000002 /* Assets.xcassets */; };
 		IC000003 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = IC000004 /* Assets.xcassets */; };
+		PV000001 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = PV000002 /* PrivacyInfo.xcprivacy */; };
+		PV000003 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = PV000004 /* PrivacyInfo.xcprivacy */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -77,6 +79,8 @@
 		WC000001 /* OpenIslandWatch.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = OpenIslandWatch.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		IC000002 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		IC000004 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		PV000002 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
+		PV000004 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -114,6 +118,7 @@
 				AB000002 /* ContentView.swift */,
 				AB000008 /* Info.plist */,
 				IC000002 /* Assets.xcassets */,
+				PV000002 /* PrivacyInfo.xcprivacy */,
 				AE000003 /* Network */,
 				AE000004 /* Views */,
 				AE000005 /* Models */,
@@ -185,6 +190,7 @@
 				WA000004 /* ContentView.swift */,
 				WA000005 /* EventCardView.swift */,
 				IC000004 /* Assets.xcassets */,
+				PV000004 /* PrivacyInfo.xcprivacy */,
 			);
 			path = OpenIslandWatch;
 			sourceTree = "<group>";
@@ -248,9 +254,10 @@
 			};
 			buildConfigurationList = B1000002 /* Build configuration list for PBXProject "OpenIslandMobile" */;
 			compatibilityVersion = "Xcode 14.0";
-			developmentRegion = en;
+			developmentRegion = "zh-Hans";
 			hasScannedForEncodings = 0;
 			knownRegions = (
+				"zh-Hans",
 				en,
 				Base,
 			);
@@ -271,6 +278,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				IC000001 /* Assets.xcassets in Resources */,
+				PV000001 /* PrivacyInfo.xcprivacy in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -279,6 +287,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				IC000003 /* Assets.xcassets in Resources */,
+				PV000003 /* PrivacyInfo.xcprivacy in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -455,6 +464,7 @@
 				DEVELOPMENT_TEAM = 5YCK3ZT7XN;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = OpenIslandMobile/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = "Open Island";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -484,6 +494,7 @@
 				DEVELOPMENT_TEAM = 5YCK3ZT7XN;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = OpenIslandMobile/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = "Open Island";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
