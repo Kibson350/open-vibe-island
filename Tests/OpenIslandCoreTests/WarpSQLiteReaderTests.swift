@@ -144,6 +144,130 @@ struct WarpSQLiteReaderTests {
     }
 
     @Test
+    func lookupPaneUUIDByShellPIDReturnsNilWhenPaneIsInBackgroundWindow() throws {
+        // Regression for PR #266 Codex review [P1]:
+        // `jumpToWarpPane` only cycles tabs within Warp's frontmost
+        // window. If the pid-based lookup returns a pane uuid from a
+        // background window, the cycle loop can never match it and
+        // the jump times out with "could not confirm precision
+        // focus" — a consistent failure for every multi-window user.
+        //
+        // Fixture has two windows: window 1 is active (tabs 1..2),
+        // window 2 is background (tabs 3..4). Shell pid 3003 maps to
+        // the index 2 pane globally — which is window 2's first tab.
+        // The lookup must return nil for that shell even though the
+        // pid ↔ index correlation itself is correct, because the
+        // resolved pane is not in the active window.
+        let tmp = NSTemporaryDirectory() + "warp-fixture-\(UUID().uuidString).sqlite"
+        try WarpSQLiteFixture.write(to: tmp, scenario: .twoWindowsFourPanes)
+        defer { try? FileManager.default.removeItem(atPath: tmp) }
+
+        let reader = WarpSQLiteReader(databasePath: tmp)
+        let siblings: [pid_t] = [3001, 3002, 3003, 3004]
+
+        // Shells for panes in window 1 (active) — accepted.
+        #expect(reader.lookupPaneUUIDByShellPID(3001, siblings: siblings)
+            == "11111111111111111111111111111111")
+        #expect(reader.lookupPaneUUIDByShellPID(3002, siblings: siblings)
+            == "22222222222222222222222222222222")
+        // Shells for panes in window 2 (background) — rejected.
+        #expect(reader.lookupPaneUUIDByShellPID(3003, siblings: siblings) == nil)
+        #expect(reader.lookupPaneUUIDByShellPID(3004, siblings: siblings) == nil)
+    }
+
+    @Test
+    func lookupPaneUUIDByShellPIDFallsBackToSmallestWindowWhenActiveWindowIsNull() throws {
+        // On real hardware `app.active_window_id` occasionally reads
+        // back NULL while Warp is mid-transition. Blindly rejecting
+        // would break every lookup — including the common
+        // single-window case where every pane is obviously reachable.
+        // The fallback uses `MIN(window_id)` from tabs, which equals
+        // the only window when there is only one.
+        let tmp = NSTemporaryDirectory() + "warp-fixture-\(UUID().uuidString).sqlite"
+        try WarpSQLiteFixture.write(to: tmp, scenario: .twoWindowsActiveNull)
+        defer { try? FileManager.default.removeItem(atPath: tmp) }
+
+        let reader = WarpSQLiteReader(databasePath: tmp)
+        // With active_window_id NULL, MIN(window_id) = 1 (the smaller
+        // of the two). Window 1's panes are still accepted; window 2's
+        // are still rejected — but now by the fallback, not by the
+        // primary query.
+        let siblings: [pid_t] = [3001, 3002, 3003, 3004]
+        #expect(reader.lookupPaneUUIDByShellPID(3001, siblings: siblings)
+            == "11111111111111111111111111111111")
+        #expect(reader.lookupPaneUUIDByShellPID(3003, siblings: siblings) == nil)
+    }
+
+    @Test
+    func currentFocusedPaneUUIDReturnsFocusedLeafOfActiveTabWithSplits() throws {
+        // Regression for PR #266 Codex review [P1]:
+        // The previous `currentFocusedPaneUUID` query offset into
+        // `tabs JOIN pane_nodes` using `windows.active_tab_index`, but
+        // `active_tab_index` counts tabs while the join returns one
+        // row per LEAF pane. The moment any earlier tab has a split,
+        // the join row count no longer matches and the offset returns
+        // the wrong leaf.
+        //
+        // Fixture: window 1 has 3 tabs, tab 1 is split into two leaves.
+        // active_tab_index = 1 means "the second tab". The focused
+        // leaf of tab 2 must come back — NOT tab 1's second split
+        // leaf (which is what the old query returned).
+        let tmp = NSTemporaryDirectory() + "warp-fixture-\(UUID().uuidString).sqlite"
+        try WarpSQLiteFixture.write(to: tmp, scenario: .threeTabsWithFirstSplit)
+        defer { try? FileManager.default.removeItem(atPath: tmp) }
+
+        let reader = WarpSQLiteReader(databasePath: tmp)
+        #expect(reader.currentFocusedPaneUUID()
+            == "66666666666666666666666666666666")
+    }
+
+    @Test
+    func currentFocusedPaneUUIDRecoversWhenActiveWindowIDIsNull() throws {
+        // Real-world regression: on a live Warp database we observed
+        // `app.active_window_id` was NULL mid-session (Warp writes
+        // it lazily, and between certain transitions it reads back
+        // as NULL). The previous nested-subquery form propagated
+        // NULL into the OFFSET expression and SQLite aborted with
+        // "datatype mismatch" — every call to
+        // currentFocusedPaneUUID() returned nil, which broke the
+        // precision-jump cycle loop (initialFocused unknown → loop
+        // cannot shortcut via fast-path).
+        //
+        // The fix is to do the active-window resolution in Swift,
+        // falling back to MIN(window_id) when `app.active_window_id`
+        // is NULL.
+        let tmp = NSTemporaryDirectory() + "warp-fixture-\(UUID().uuidString).sqlite"
+        try WarpSQLiteFixture.write(to: tmp, scenario: .singleWindowActiveNull)
+        defer { try? FileManager.default.removeItem(atPath: tmp) }
+
+        let reader = WarpSQLiteReader(databasePath: tmp)
+        // Single window with 2 tabs; active_tab_index=1 (second tab).
+        // Fallback sets active window = 1, query drills into tab 2
+        // and returns its leaf pane.
+        #expect(reader.currentFocusedPaneUUID()
+            == "22222222222222222222222222222222")
+    }
+
+    @Test
+    func currentFocusedPaneUUIDPrefersTheFocusedLeafWithinASplitTab() throws {
+        // Within a single split tab, `pane_leaves.is_focused` picks
+        // the right leaf. Without this filter, every jump into a
+        // split tab would land on whichever leaf has the lowest
+        // pane_nodes.id, and the user's live terminal would not be
+        // the focused target.
+        let tmp = NSTemporaryDirectory() + "warp-fixture-\(UUID().uuidString).sqlite"
+        try WarpSQLiteFixture.write(to: tmp, scenario: .singleTabSplitLeftFocused)
+        defer { try? FileManager.default.removeItem(atPath: tmp) }
+
+        let reader = WarpSQLiteReader(databasePath: tmp)
+        // The split tab has two leaves; pane_leaves marks the right
+        // leaf (uuid BBBB) as focused. The left leaf (AAAA) must NOT
+        // be returned even though its pane_nodes.id is smaller.
+        #expect(reader.currentFocusedPaneUUID()
+            == "BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB")
+    }
+
+    @Test
     func lookupPaneUUIDByShellPIDReturnsNilWhenIndexIsOutOfRange() throws {
         // Simulates a transient state where siblings list contains
         // more entries than terminal_panes. Could happen if Warp is
@@ -314,6 +438,7 @@ enum WarpSQLiteFixture {
         CREATE TABLE terminal_panes (id INTEGER PRIMARY KEY, uuid BLOB NOT NULL, cwd TEXT);
         CREATE TABLE commands (id INTEGER PRIMARY KEY, session_id INTEGER, command TEXT, pwd TEXT);
         CREATE TABLE blocks (id INTEGER PRIMARY KEY, pane_leaf_uuid BLOB, block_id TEXT);
+        CREATE TABLE pane_leaves (pane_node_id INTEGER PRIMARY KEY, is_focused BOOLEAN NOT NULL DEFAULT 0);
         """
         guard sqlite3_exec(db, schema, nil, nil, nil) == SQLITE_OK else {
             throw NSError(domain: "WarpSQLiteFixture", code: 2, userInfo: [NSLocalizedDescriptionKey: "schema failed: \(String(cString: sqlite3_errmsg(db)))"])
@@ -415,6 +540,108 @@ enum WarpSQLiteFixture {
             "INSERT INTO blocks (id, pane_leaf_uuid, block_id) VALUES " +
                 "(1, x'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA', 'precmd-10001-1')," +
                 "(2, x'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA', 'precmd-10001-2');",
+        ])
+
+        /// Models a user with two Warp windows open — window 1 is
+        /// active (`app.active_window_id = 1`), each window has two
+        /// tabs, one leaf pane per tab. The pid-based lookup must
+        /// reject panes in window 2 even though the pid index maps to
+        /// them correctly, because `jumpToWarpPane` only cycles tabs
+        /// in the frontmost window and would otherwise chase an
+        /// unreachable uuid.
+        static let twoWindowsFourPanes = Scenario(rows: [
+            "INSERT INTO app (id, active_window_id) VALUES (1, 1);",
+            "INSERT INTO windows (id, active_tab_index) VALUES (1, 0), (2, 0);",
+            "INSERT INTO tabs (id, window_id) VALUES " +
+                "(1, 1), (2, 1)," +   // window 1 tabs (active)
+                "(3, 2), (4, 2);",    // window 2 tabs (background)
+            "INSERT INTO pane_nodes (id, tab_id, is_leaf) VALUES " +
+                "(1, 1, 1), (2, 2, 1), (3, 3, 1), (4, 4, 1);",
+            "INSERT INTO terminal_panes (id, uuid, cwd) VALUES " +
+                "(1, x'11111111111111111111111111111111', '/window-1-tab-1')," +
+                "(2, x'22222222222222222222222222222222', '/window-1-tab-2')," +
+                "(3, x'33333333333333333333333333333333', '/window-2-tab-1')," +
+                "(4, x'44444444444444444444444444444444', '/window-2-tab-2');",
+        ])
+
+        /// Same topology as `twoWindowsFourPanes` but with
+        /// `app.active_window_id = NULL`. Exercises the fallback to
+        /// `MIN(window_id)` that keeps single-window lookups working
+        /// even when Warp hasn't populated the pointer yet.
+        static let twoWindowsActiveNull = Scenario(rows: [
+            "INSERT INTO app (id, active_window_id) VALUES (1, NULL);",
+            "INSERT INTO windows (id, active_tab_index) VALUES (1, 0), (2, 0);",
+            "INSERT INTO tabs (id, window_id) VALUES " +
+                "(1, 1), (2, 1)," +
+                "(3, 2), (4, 2);",
+            "INSERT INTO pane_nodes (id, tab_id, is_leaf) VALUES " +
+                "(1, 1, 1), (2, 2, 1), (3, 3, 1), (4, 4, 1);",
+            "INSERT INTO terminal_panes (id, uuid, cwd) VALUES " +
+                "(1, x'11111111111111111111111111111111', '/window-1-tab-1')," +
+                "(2, x'22222222222222222222222222222222', '/window-1-tab-2')," +
+                "(3, x'33333333333333333333333333333333', '/window-2-tab-1')," +
+                "(4, x'44444444444444444444444444444444', '/window-2-tab-2');",
+        ])
+
+        /// Pins `currentFocusedPaneUUID` handling of a split tab
+        /// earlier in the tab order. Window 1 has three tabs; tab 1
+        /// is split into TWO leaf panes (`pane_nodes` ids 10 and 11,
+        /// both `is_leaf = 1`, tab_id = 1), tab 2 and tab 3 each have
+        /// a single leaf (ids 20 and 30). `active_tab_index = 1`
+        /// means "the second tab" — which is tab_id 2, pane 20.
+        ///
+        /// The OLD query `LIMIT 1 OFFSET 1` against `tabs JOIN
+        /// pane_nodes` would skip past pane 10 and land on pane 11
+        /// (tab 1's second split leaf) — wrong. The new CTE-based
+        /// query selects tab 2 by offset and then drills into its
+        /// leaves.
+        static let threeTabsWithFirstSplit = Scenario(rows: [
+            "INSERT INTO app (id, active_window_id) VALUES (1, 1);",
+            "INSERT INTO windows (id, active_tab_index) VALUES (1, 1);",
+            "INSERT INTO tabs (id, window_id) VALUES (1, 1), (2, 1), (3, 1);",
+            // Tab 1: SPLIT into two leaves. Tab 2: single leaf. Tab 3: single leaf.
+            "INSERT INTO pane_nodes (id, tab_id, is_leaf) VALUES " +
+                "(10, 1, 1), (11, 1, 1), (20, 2, 1), (30, 3, 1);",
+            "INSERT INTO terminal_panes (id, uuid, cwd) VALUES " +
+                "(10, x'44444444444444444444444444444444', '/tab-1-left')," +
+                "(11, x'55555555555555555555555555555555', '/tab-1-right')," +
+                "(20, x'66666666666666666666666666666666', '/tab-2')," +
+                "(30, x'77777777777777777777777777777777', '/tab-3');",
+            // pane_leaves — none focused explicitly; the single-leaf
+            // tabs (20, 30) have no split so focus is trivially the
+            // only leaf.
+            "INSERT INTO pane_leaves (pane_node_id, is_focused) VALUES " +
+                "(10, 0), (11, 0), (20, 1), (30, 0);",
+        ])
+
+        /// Single-window database with `app.active_window_id` NULL,
+        /// two tabs, `windows.active_tab_index=1` (second tab). The
+        /// fallback to `MIN(window_id)` must pick window 1 and the
+        /// query must drill into tab 2's leaf.
+        static let singleWindowActiveNull = Scenario(rows: [
+            "INSERT INTO app (id, active_window_id) VALUES (1, NULL);",
+            "INSERT INTO windows (id, active_tab_index) VALUES (1, 1);",
+            "INSERT INTO tabs (id, window_id) VALUES (1, 1), (2, 1);",
+            "INSERT INTO pane_nodes (id, tab_id, is_leaf) VALUES (1, 1, 1), (2, 2, 1);",
+            "INSERT INTO terminal_panes (id, uuid, cwd) VALUES " +
+                "(1, x'11111111111111111111111111111111', '/tab-1')," +
+                "(2, x'22222222222222222222222222222222', '/tab-2');",
+        ])
+
+        /// Pins the "prefer the focused leaf within a split tab"
+        /// behavior. Single tab with two leaves; `pane_leaves` marks
+        /// the right leaf (pane_nodes 11 → pane uuid BBBB) as focused.
+        /// The lookup must return BBBB, NOT AAAA, even though AAAA has
+        /// the smaller pane_nodes.id and would win a naive ordering.
+        static let singleTabSplitLeftFocused = Scenario(rows: [
+            "INSERT INTO app (id, active_window_id) VALUES (1, 1);",
+            "INSERT INTO windows (id, active_tab_index) VALUES (1, 0);",
+            "INSERT INTO tabs (id, window_id) VALUES (1, 1);",
+            "INSERT INTO pane_nodes (id, tab_id, is_leaf) VALUES (10, 1, 1), (11, 1, 1);",
+            "INSERT INTO terminal_panes (id, uuid, cwd) VALUES " +
+                "(10, x'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA', '/left')," +
+                "(11, x'BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB', '/right');",
+            "INSERT INTO pane_leaves (pane_node_id, is_focused) VALUES (10, 0), (11, 1);",
         ])
 
         /// Three tabs in one window. Tab 1 cwd=giftcard (pane uuid AAAA...),

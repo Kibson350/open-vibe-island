@@ -253,7 +253,9 @@ public struct WarpSQLiteReader: Sendable {
     /// enumeration via `pgrep`.
     ///
     /// Returns nil when `shellPID` is not in `siblings`, when the index
-    /// is out of range relative to the tab list, or on any SQLite error.
+    /// is out of range relative to the tab list, when the resolved
+    /// pane lives in a background Warp window (unreachable by the
+    /// cycle loop in `jumpToWarpPane`), or on any SQLite error.
     public func lookupPaneUUIDByShellPID(
         _ shellPID: pid_t,
         siblings: [pid_t]
@@ -266,16 +268,19 @@ public struct WarpSQLiteReader: Sendable {
         guard let db = openReadOnly() else { return nil }
         defer { sqlite3_close(db) }
 
-        // Enumerates every live leaf terminal pane in tab_id order,
-        // across all windows. Dropping the `active_window_id` filter is
-        // deliberate: on real hardware that column is sometimes NULL
-        // (Warp populates it lazily) and filtering on it returns zero
-        // rows even though the panes are clearly live. The
-        // pid-correlation assumption holds across all windows because
-        // terminal-server spawns children for every window's tabs, in
-        // the same creation order tabs are recorded in.
+        // Enumerate every live leaf pane ACROSS ALL WINDOWS in tab_id
+        // order. Filtering by window in SQL would break the index
+        // arithmetic — pid correlation is built on the global creation
+        // sequence of shell children, and the shell ordering matches
+        // the global tab_id ordering, not a per-window ordering.
+        // Instead we pull the row's `window_id` alongside the uuid and
+        // reject it in Swift when the pane lives in a background
+        // window, because `jumpToWarpPane` only cycles tabs in the
+        // frontmost window — a pane uuid from any other window can
+        // never match `currentFocusedPaneUUID()` and the cycle loop
+        // would spin its entire cap before timing out.
         let sql = """
-        SELECT hex(tp.uuid)
+        SELECT hex(tp.uuid), t.window_id
         FROM tabs t
         JOIN pane_nodes pn ON pn.tab_id = t.id AND pn.is_leaf = 1
         JOIN terminal_panes tp ON tp.id = pn.id
@@ -291,7 +296,48 @@ public struct WarpSQLiteReader: Sendable {
 
         guard sqlite3_step(stmt) == SQLITE_ROW else { return nil }
         guard let cString = sqlite3_column_text(stmt, 0) else { return nil }
-        return String(cString: cString)
+        let uuid = String(cString: cString)
+        let paneWindowID = sqlite3_column_int64(stmt, 1)
+
+        // Reject panes in non-active windows. When the active window
+        // cannot be determined at all (Warp leaves `app.active_window_id`
+        // NULL transiently and the tabs table is empty for some reason),
+        // we accept any window as a best-effort — declining would
+        // break the single-window case where the row is obviously
+        // reachable.
+        if let activeWindowID = fetchActiveWindowID(db: db), activeWindowID != paneWindowID {
+            return nil
+        }
+        return uuid
+    }
+
+    /// Reads Warp's current "active window" pointer.
+    ///
+    /// Primary source: `app.active_window_id`. Warp sometimes leaves
+    /// this NULL during transient states; in that case we fall back to
+    /// `MIN(window_id)` from tabs, which equals the only window for
+    /// the overwhelmingly common single-window case. Returns nil only
+    /// when both the primary and fallback queries give nothing
+    /// actionable — at which point callers should skip the
+    /// active-window filter rather than reject all panes.
+    private func fetchActiveWindowID(db: OpaquePointer) -> Int64? {
+        if let value = fetchSingleInt64(db: db, sql: "SELECT active_window_id FROM app LIMIT 1") {
+            return value
+        }
+        return fetchSingleInt64(db: db, sql: "SELECT MIN(window_id) FROM tabs")
+    }
+
+    /// Executes a SQL query that is expected to return a single integer
+    /// column and row. Returns nil when the query yields no rows or
+    /// the column is NULL — the caller decides how to interpret the
+    /// absence.
+    private func fetchSingleInt64(db: OpaquePointer, sql: String) -> Int64? {
+        var stmt: OpaquePointer?
+        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else { return nil }
+        defer { sqlite3_finalize(stmt) }
+        guard sqlite3_step(stmt) == SQLITE_ROW else { return nil }
+        if sqlite3_column_type(stmt, 0) == SQLITE_NULL { return nil }
+        return sqlite3_column_int64(stmt, 0)
     }
 
     /// Production-facing overload that enumerates terminal-server's
@@ -350,26 +396,103 @@ public struct WarpSQLiteReader: Sendable {
         guard let db = openReadOnly() else { return nil }
         defer { sqlite3_close(db) }
 
+        // Resolution happens in three explicit SQL steps rather than a
+        // single nested query. The motivation is that on real hardware
+        // `app.active_window_id` is frequently NULL during transient
+        // Warp states, and the old nested form `LIMIT 1 OFFSET (SELECT
+        // ... WHERE id = (SELECT active_window_id ...))` propagates
+        // that NULL into the OFFSET expression, which raises
+        // "datatype mismatch" and aborts the whole query. Doing the
+        // lookups in separate statements lets us fall back (via
+        // `fetchActiveWindowID`) to `MIN(window_id)` when the primary
+        // pointer is missing, which keeps the common single-window
+        // case working.
+        guard let activeWindowID = fetchActiveWindowID(db: db) else {
+            return nil
+        }
+        let activeTabIndex = fetchActiveTabIndex(db: db, windowID: activeWindowID) ?? 0
+        guard let activeTabID = fetchTabIDAtOffset(
+            db: db,
+            windowID: activeWindowID,
+            offset: activeTabIndex
+        ) else {
+            return nil
+        }
+
+        // Fetch the active tab's focused leaf. `pane_leaves.is_focused`
+        // is a best-effort preference — empirical observation on real
+        // Warp databases shows it is often `1` for every leaf
+        // (unconditionally set on creation, never cleared), so the
+        // ordering effectively decays into the `pn.id ASC` tiebreaker
+        // for split tabs. That is an acceptable graceful degradation:
+        // single-leaf tabs still return the correct uuid, and split
+        // tabs return a deterministic-but-possibly-not-focused leaf
+        // that users can adjust manually. The important correctness
+        // property is that we no longer offset into the `tabs JOIN
+        // pane_nodes` row set by `active_tab_index`, so prior-split
+        // tabs can no longer shift subsequent tabs' results.
         let sql = """
         SELECT hex(tp.uuid)
-        FROM tabs t
-        JOIN pane_nodes pn ON pn.tab_id = t.id AND pn.is_leaf = 1
+        FROM pane_nodes pn
+        LEFT JOIN pane_leaves pl ON pl.pane_node_id = pn.id
         JOIN terminal_panes tp ON tp.id = pn.id
-        WHERE t.window_id = (SELECT active_window_id FROM app LIMIT 1)
-        ORDER BY t.id
-        LIMIT 1 OFFSET (
-            SELECT active_tab_index FROM windows
-            WHERE id = (SELECT active_window_id FROM app LIMIT 1)
-        );
+        WHERE pn.tab_id = ?
+          AND pn.is_leaf = 1
+        ORDER BY COALESCE(pl.is_focused, 0) DESC, pn.id ASC
+        LIMIT 1;
         """
 
         var stmt: OpaquePointer?
         guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else { return nil }
         defer { sqlite3_finalize(stmt) }
 
+        sqlite3_bind_int64(stmt, 1, activeTabID)
+
         guard sqlite3_step(stmt) == SQLITE_ROW else { return nil }
         guard let cString = sqlite3_column_text(stmt, 0) else { return nil }
         return String(cString: cString)
+    }
+
+    /// Reads `windows.active_tab_index` for the given window, or nil
+    /// when the row is missing or the column is NULL.
+    private func fetchActiveTabIndex(db: OpaquePointer, windowID: Int64) -> Int? {
+        var stmt: OpaquePointer?
+        guard sqlite3_prepare_v2(
+            db,
+            "SELECT active_tab_index FROM windows WHERE id = ?",
+            -1,
+            &stmt,
+            nil
+        ) == SQLITE_OK else { return nil }
+        defer { sqlite3_finalize(stmt) }
+        sqlite3_bind_int64(stmt, 1, windowID)
+        guard sqlite3_step(stmt) == SQLITE_ROW else { return nil }
+        if sqlite3_column_type(stmt, 0) == SQLITE_NULL { return nil }
+        return Int(sqlite3_column_int64(stmt, 0))
+    }
+
+    /// Selects the tab_id at `offset` within the given window's tab
+    /// list, ordered by `tabs.id ASC` (matches Warp's left-to-right
+    /// tab strip layout).
+    private func fetchTabIDAtOffset(
+        db: OpaquePointer,
+        windowID: Int64,
+        offset: Int
+    ) -> Int64? {
+        var stmt: OpaquePointer?
+        guard sqlite3_prepare_v2(
+            db,
+            "SELECT id FROM tabs WHERE window_id = ? ORDER BY id ASC LIMIT 1 OFFSET ?",
+            -1,
+            &stmt,
+            nil
+        ) == SQLITE_OK else { return nil }
+        defer { sqlite3_finalize(stmt) }
+        sqlite3_bind_int64(stmt, 1, windowID)
+        sqlite3_bind_int64(stmt, 2, Int64(offset))
+        guard sqlite3_step(stmt) == SQLITE_ROW else { return nil }
+        if sqlite3_column_type(stmt, 0) == SQLITE_NULL { return nil }
+        return sqlite3_column_int64(stmt, 0)
     }
 
     /// Returns the number of tabs in the currently active Warp window.

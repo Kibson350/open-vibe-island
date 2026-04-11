@@ -1584,13 +1584,10 @@ public final class BridgeServer: @unchecked Sendable {
             return
         }
 
-        var jumpTarget = payload.defaultJumpTarget
-
-        if jumpTarget.terminalSessionID == nil,
-           let existingID = existingSession.jumpTarget?.terminalSessionID,
-           !existingID.isEmpty {
-            jumpTarget.terminalSessionID = existingID
-        }
+        let jumpTarget = Self.mergeJumpTargetPreservingExistingResolvedFields(
+            incoming: payload.defaultJumpTarget,
+            existing: existingSession.jumpTarget
+        )
 
         guard existingSession.jumpTarget != jumpTarget else {
             return
@@ -1659,22 +1656,59 @@ public final class BridgeServer: @unchecked Sendable {
         )
     }
 
+    /// Merges an incoming jumpTarget with the session's existing one so
+    /// that expensive-to-resolve fields are not silently cleared by a
+    /// later hook that failed to re-resolve them.
+    ///
+    /// Two fields fall into this category:
+    ///
+    /// 1. `terminalSessionID` — only SessionStart hooks actually query
+    ///    Ghostty's focused-terminal locator (subsequent hooks leave it
+    ///    nil to avoid stamping the wrong terminal if the user has
+    ///    since switched tabs). Without preservation, every non-start
+    ///    hook would overwrite a correctly-resolved session id with
+    ///    nil. Preservation has been in place since the Ghostty jump
+    ///    feature landed.
+    ///
+    /// 2. `warpPaneUUID` — resolved via a SQLite + process-tree walk
+    ///    at hook time. Legitimate transient failures (pgrep race,
+    ///    SQLite lock contention, Warp mid-startup) make the resolver
+    ///    return nil. Without preservation, the first such transient
+    ///    failure after a successful resolve would permanently drop
+    ///    the mapping for the rest of the session, demoting precision
+    ///    jump to bare activation until the NEXT lucky hook.
+    ///
+    /// Both are "resolved fields": the hook either succeeds at
+    /// finding them or reports nil. nil does NOT mean "absence is the
+    /// ground truth" — it means "this invocation could not determine
+    /// the value, prefer the last known good one".
+    static func mergeJumpTargetPreservingExistingResolvedFields(
+        incoming: JumpTarget,
+        existing: JumpTarget?
+    ) -> JumpTarget {
+        var merged = incoming
+        if merged.terminalSessionID == nil,
+           let existingID = existing?.terminalSessionID,
+           !existingID.isEmpty {
+            merged.terminalSessionID = existingID
+        }
+        if merged.warpPaneUUID == nil,
+           let existingUUID = existing?.warpPaneUUID,
+           !existingUUID.isEmpty {
+            merged.warpPaneUUID = existingUUID
+        }
+        return merged
+    }
+
     private func synchronizeClaudeJumpTarget(for payload: ClaudeHookPayload) {
         guard let existingSession = localState.session(id: payload.sessionID) else {
             return
         }
 
-        var jumpTarget = payload.defaultJumpTarget
-
-        // Preserve an existing Ghostty terminal session ID when the incoming
-        // payload doesn't carry one.  Only SessionStart hooks query the
-        // Ghostty focused-terminal locator; later hooks clear the field to
-        // avoid capturing the wrong terminal if the user switched tabs.
-        if jumpTarget.terminalSessionID == nil,
-           let existingID = existingSession.jumpTarget?.terminalSessionID,
-           !existingID.isEmpty {
-            jumpTarget.terminalSessionID = existingID
-        }
+        let jumpTarget = Self.mergeJumpTargetPreservingExistingResolvedFields(
+            incoming: payload.defaultJumpTarget,
+            existing: existingSession.jumpTarget
+        )
 
         guard existingSession.jumpTarget != jumpTarget else {
             return
