@@ -135,7 +135,8 @@ final class TerminalJumpServiceTests: XCTestCase {
             openAction: { arguments in
                 openedArguments.values.append(arguments)
             },
-            appleScriptRunner: { _ in "" }
+            appleScriptRunner: { _ in "" },
+            processRunner: { _, _ in false }
         )
 
         let result = try service.jump(
