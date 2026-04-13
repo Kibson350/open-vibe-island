@@ -540,10 +540,14 @@ struct IslandPanelView: View {
                         }
                     }
             } else {
-                // List mode: auto-height (fits content, scrolls only when exceeding max)
-                AutoHeightScrollView(maxHeight: Self.maxSessionListHeight) {
+                // List mode: scroll when content exceeds the panel's available space.
+                // The parent frame constraint (currentHeight - closedNotchHeight - 12)
+                // determines the viewport; ScrollView handles overflow naturally.
+                ScrollView(.vertical) {
                     sessionListContent(context: context)
                 }
+                .scrollIndicators(.hidden)
+                .scrollBounceBehavior(.basedOnSize)
                 .padding(.vertical, 2)
             }
         }
