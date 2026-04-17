@@ -355,6 +355,14 @@ final class AppModel {
     @ObservationIgnored
     var openSettingsWindow: (() -> Void)?
 
+    /// Whether the first-run onboarding window is on screen. Set when the
+    /// startup flow presents it or when the user taps an empty-state CTA.
+    /// Cleared by the window controller's `windowWillClose` delegate.
+    var isOnboardingPresented: Bool = false
+
+    @ObservationIgnored
+    private var onboardingWindowController: OnboardingWindowController?
+
     @ObservationIgnored
     private var hasFinishedInit = false
 
@@ -937,13 +945,23 @@ final class AppModel {
         NSApp.activate(ignoringOtherApps: true)
     }
 
-    /// Opens the first-run onboarding window. Currently routes to the
-    /// settings window as a fallback — the dedicated window is introduced
-    /// in the next commit (C5). Call sites that want "take me to agent
-    /// setup" should use this instead of `showSettings()` so they pick up
-    /// the real onboarding once it ships.
+    /// Opens the first-run onboarding window. Invoked on first launch (via
+    /// the startup discovery payload) and from the empty-state prompts in
+    /// the island and settings panels. Lazily creates the controller so
+    /// the window resources cost nothing until first use.
     func showOnboarding() {
-        showSettings()
+        isOnboardingPresented = true
+        if onboardingWindowController == nil {
+            onboardingWindowController = OnboardingWindowController(model: self)
+        }
+        onboardingWindowController?.show()
+    }
+
+    /// Closes the onboarding window. Called by the coordinator when the
+    /// user completes the flow or explicitly skips it.
+    func dismissOnboarding() {
+        onboardingWindowController?.close()
+        isOnboardingPresented = false
     }
 
     func showControlCenter() {
@@ -1318,6 +1336,15 @@ final class AppModel {
                 // on upgrade. Must run after status reads and before any
                 // install decision.
                 self.hooks.migrateIntentStoreIfNeeded()
+
+                // True new users (no hooks, no prior onboarding) get the
+                // first-run window instead of the blind auto-install loop
+                // below. Harness scenarios skip session discovery entirely
+                // so this branch is naturally excluded there.
+                if !self.firstLaunchCompleted {
+                    self.showOnboarding()
+                    return
+                }
 
                 // Install only hooks the user has not explicitly opted out of.
                 // `shouldAutoInstall` skips `.uninstalled` agents and agents
