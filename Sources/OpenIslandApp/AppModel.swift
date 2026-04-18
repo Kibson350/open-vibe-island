@@ -155,6 +155,7 @@ final class AppModel {
             || hooks.codebuddyHooksInstalled
             || hooks.openCodePluginInstalled
             || hooks.geminiHooksInstalled
+            || hooks.kimiHooksInstalled
     }
     func refreshCodexHookStatus() { hooks.refreshCodexHookStatus() }
     func refreshClaudeHookStatus() { hooks.refreshClaudeHookStatus() }

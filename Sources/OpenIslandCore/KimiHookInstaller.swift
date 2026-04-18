@@ -12,7 +12,7 @@ public struct KimiHookInstallerManifest: Equatable, Codable, Sendable {
     }
 }
 
-public struct KimiHookFileMutation: Equatable, Sendable {
+public struct KimiHookFileMutation: Equatable, Sendable, Codable {
     public var contents: String?
     public var changed: Bool
     public var managedHooksPresent: Bool

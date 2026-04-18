@@ -713,7 +713,7 @@ public final class BridgeServer: @unchecked Sendable {
 
             let summary = {
                 if payload.toolName == "AskUserQuestion" {
-                    return "Claude captured your answers."
+                    return "\(payload.resolvedAgentTool.displayName) captured your answers."
                 }
 
                 if let preview = payload.toolResponsePreview,
@@ -769,7 +769,7 @@ public final class BridgeServer: @unchecked Sendable {
                 .sessionCompleted(
                     SessionCompleted(
                         sessionID: payload.sessionID,
-                        summary: payload.error ?? "Claude permission was denied.",
+                        summary: payload.error ?? "\(payload.resolvedAgentTool.displayName) permission was denied.",
                         timestamp: .now
                     )
                 )
@@ -862,7 +862,7 @@ public final class BridgeServer: @unchecked Sendable {
                 )
             }
 
-            let summary = payload.agentType.map { "Started \($0) subagent." } ?? "Started Claude subagent."
+            let summary = payload.agentType.map { "Started \($0) subagent." } ?? "Started \(payload.resolvedAgentTool.displayName) subagent."
             emit(
                 .activityUpdated(
                     SessionActivityUpdated(
@@ -886,7 +886,7 @@ public final class BridgeServer: @unchecked Sendable {
 
             let summary = payload.lastAssistantMessage ?? payload.assistantMessagePreview
                 ?? payload.agentType.map { "Finished \($0) subagent." }
-                ?? "Finished Claude subagent."
+                ?? "Finished \(payload.resolvedAgentTool.displayName) subagent."
             emit(
                 .activityUpdated(
                     SessionActivityUpdated(
@@ -929,7 +929,7 @@ public final class BridgeServer: @unchecked Sendable {
                 .sessionCompleted(
                     SessionCompleted(
                         sessionID: payload.sessionID,
-                        summary: "Claude session ended.",
+                        summary: "\(payload.resolvedAgentTool.displayName) session ended.",
                         timestamp: .now,
                         isInterrupt: true,
                         isSessionEnd: true
@@ -2294,14 +2294,15 @@ public final class BridgeServer: @unchecked Sendable {
             directive = .permissionRequest(
                 .allow(updatedInput: finalInput, updatedPermissions: updatedPermissions)
             )
-            summary = "Claude's questions were answered."
+            summary = "\(payload.resolvedAgentTool.displayName)'s questions were answered."
             phase = .running
 
-        case let (.question(_, _), .deny(message, interrupt)):
+        case let (.question(payload, _), .deny(message, interrupt)):
+            let fallback = "Declined to answer \(payload.resolvedAgentTool.displayName)'s questions."
             directive = .permissionRequest(
-                .deny(message: message ?? "Declined to answer Claude's questions.", interrupt: interrupt)
+                .deny(message: message ?? fallback, interrupt: interrupt)
             )
-            summary = message ?? "Declined to answer Claude's questions."
+            summary = message ?? fallback
             phase = .completed
         }
 
@@ -2345,7 +2346,7 @@ public final class BridgeServer: @unchecked Sendable {
             response: response
         )
         let summary = response.displaySummary.isEmpty
-            ? "Answered Claude's questions."
+            ? "Answered \(payload.resolvedAgentTool.displayName)'s questions."
             : "Answered: \(response.displaySummary)"
 
         emit(
