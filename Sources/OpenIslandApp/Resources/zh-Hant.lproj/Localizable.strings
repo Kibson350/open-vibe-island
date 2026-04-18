@@ -108,8 +108,7 @@
 "setup.permissionsDesc" = "Open Island 可能需要輔助使用權限來偵測終端機視窗。請在「系統設定 → 隱私權與安全性 → 輔助使用」中授權。";
 "setup.installAll" = "全部安裝";
 "setup.banner.noHooks.title" = "開始使用 Open Island";
-"setup.banner.noHooks.message" = "啟用 Agent hooks，讓 Open Island 監聽你的 AI 編碼工作階段。";
-"setup.banner.noHooks.action" = "開始設定";
+"setup.banner.noHooks.message" = "在下方為你使用的 Agent 安裝 hook，Open Island 就會開始監聽對應工作階段。";
 "setup.revealConfigLocation" = "在 Finder 中顯示設定";
 "setup.section.diagnostics" = "Hooks 診斷";
 "setup.diagnostics.notRun" = "尚未執行健康檢查。";

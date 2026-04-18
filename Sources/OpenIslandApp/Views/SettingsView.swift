@@ -103,6 +103,9 @@ struct SettingsView: View {
         }
         .frame(minWidth: 680, idealWidth: 780, minHeight: 480, idealHeight: 560)
         .preferredColorScheme(.dark)
+        .onReceive(NotificationCenter.default.publisher(for: .openIslandSelectSetupTab)) { _ in
+            selectedTab = .setup
+        }
     }
 
     // MARK: Sidebar
@@ -739,13 +742,6 @@ struct SetupSettingsPane: View {
                 }
 
                 Spacer()
-
-                Button(lang.t("setup.banner.noHooks.action")) {
-                    model.showOnboarding()
-                }
-                .controlSize(.regular)
-                .buttonStyle(.borderedProminent)
-                .disabled(model.hooksBinaryURL == nil)
             }
             .padding(.vertical, 4)
         }

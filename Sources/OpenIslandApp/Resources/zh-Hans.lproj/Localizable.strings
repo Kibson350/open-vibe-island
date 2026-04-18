@@ -108,8 +108,7 @@
 "setup.permissionsDesc" = "Open Island 可能需要辅助功能权限来检测终端窗口。请在「系统设置 → 隐私与安全性 → 辅助功能」中授权。";
 "setup.installAll" = "全部安装";
 "setup.banner.noHooks.title" = "开始使用 Open Island";
-"setup.banner.noHooks.message" = "启用 Agent hooks，让 Open Island 监听你的 AI 编码会话。";
-"setup.banner.noHooks.action" = "开始配置";
+"setup.banner.noHooks.message" = "在下方为你使用的 Agent 安装 hook，Open Island 就会开始监听对应会话。";
 "setup.revealConfigLocation" = "在 Finder 中显示配置";
 "setup.section.diagnostics" = "Hooks 诊断";
 "setup.diagnostics.notRun" = "尚未运行健康检查。";

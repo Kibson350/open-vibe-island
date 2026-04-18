@@ -4,6 +4,14 @@ import Observation
 import OpenIslandCore
 import SwiftUI
 
+extension Notification.Name {
+    /// Posted by `AppModel.showOnboarding()` to ask `SettingsView` to
+    /// switch to the Setup tab. Lets the empty-state CTAs deliver the
+    /// user to the right place without `SettingsView`'s `@State` having
+    /// to leak into `AppModel`.
+    static let openIslandSelectSetupTab = Notification.Name("openIslandSelectSetupTab")
+}
+
 @MainActor
 @Observable
 final class AppModel {
@@ -937,13 +945,13 @@ final class AppModel {
         NSApp.activate(ignoringOtherApps: true)
     }
 
-    /// Opens the first-run onboarding window. Currently routes to the
-    /// settings window as a fallback — the dedicated window is introduced
-    /// in the next commit (C5). Call sites that want "take me to agent
-    /// setup" should use this instead of `showSettings()` so they pick up
-    /// the real onboarding once it ships.
+    /// Opens Settings on the Setup tab so the user can install hooks.
+    /// Used by every "Set up agents" CTA in the empty-state UI. A
+    /// dedicated first-run onboarding window will replace this in a
+    /// later PR; until then this is the canonical entry point.
     func showOnboarding() {
         showSettings()
+        NotificationCenter.default.post(name: .openIslandSelectSetupTab, object: nil)
     }
 
     func showControlCenter() {
