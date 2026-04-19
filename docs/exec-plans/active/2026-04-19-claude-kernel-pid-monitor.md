@@ -1,6 +1,6 @@
 # Claude Lifecycle: Replace ps/lsof Polling with Kernel PID Exit Monitoring
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+**Status:** Active. Task steps use `- [ ]` checkboxes — update them in place as work lands.
 
 **Goal:** Stop using `ps`/`lsof` polling as an authoritative signal for hook-managed Claude Code session liveness. Replace it with `DispatchSource.makeProcessSource(eventMask: .exit)` anchored to the Claude CLI PID that each hook brings in. Hook events + kernel exit notifications become the only source of truth for live-session lifecycle. Process polling is retained **only** for cold-start discovery of orphan Claude processes that have no hook history.
 
