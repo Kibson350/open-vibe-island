@@ -431,22 +431,10 @@ public final class BridgeServer: @unchecked Sendable {
 
         case let .processCursorHook(payload):
             handleCursorHook(payload, from: clientID)
-
-        case let .processGeminiHook(payload):
-            handleGeminiHook(payload, from: clientID)
         }
     }
 
     private func handleCodexHook(_ payload: CodexHookPayload, from clientID: UUID) {
-        // Filter out Codex.app internal invocations (e.g. conversation title
-        // generation).  These fire hooks but have no transcript file — they're
-        // ephemeral API calls, not user-facing sessions.
-        if payload.terminalApp == "Codex.app",
-           (payload.transcriptPath ?? "").isEmpty {
-            send(.response(.acknowledged), to: clientID)
-            return
-        }
-
         switch payload.hookEventName {
         case .sessionStart:
             let event = AgentEvent.sessionStarted(
@@ -632,7 +620,7 @@ public final class BridgeServer: @unchecked Sendable {
                 }
             }
 
-            let summary = payload.toolName.map { "Running \($0)" } ?? "Running \(payload.resolvedAgentTool.displayName) tool"
+            let summary = payload.toolName.map { "Running \($0)" } ?? "Running Claude tool"
             emit(
                 .activityUpdated(
                     SessionActivityUpdated(
@@ -713,7 +701,7 @@ public final class BridgeServer: @unchecked Sendable {
 
             let summary = {
                 if payload.toolName == "AskUserQuestion" {
-                    return "\(payload.resolvedAgentTool.displayName) captured your answers."
+                    return "Claude captured your answers."
                 }
 
                 if let preview = payload.toolResponsePreview,
@@ -751,7 +739,7 @@ public final class BridgeServer: @unchecked Sendable {
                 .activityUpdated(
                     SessionActivityUpdated(
                         sessionID: payload.sessionID,
-                        summary: payload.error ?? "\(payload.resolvedAgentTool.displayName) tool failed.",
+                        summary: payload.error ?? "Claude tool failed.",
                         phase: payload.isInterrupt == true ? .completed : .running,
                         timestamp: .now
                     )
@@ -769,7 +757,7 @@ public final class BridgeServer: @unchecked Sendable {
                 .sessionCompleted(
                     SessionCompleted(
                         sessionID: payload.sessionID,
-                        summary: payload.error ?? "\(payload.resolvedAgentTool.displayName) permission was denied.",
+                        summary: payload.error ?? "Claude permission was denied.",
                         timestamp: .now
                     )
                 )
@@ -815,7 +803,7 @@ public final class BridgeServer: @unchecked Sendable {
                 .sessionCompleted(
                     SessionCompleted(
                         sessionID: payload.sessionID,
-                        summary: payload.lastAssistantMessage ?? payload.assistantMessagePreview ?? "\(payload.resolvedAgentTool.displayName) completed the turn.",
+                        summary: payload.lastAssistantMessage ?? payload.assistantMessagePreview ?? "Claude completed the turn.",
                         timestamp: .now,
                         isInterrupt: payload.isInterrupt
                     )
@@ -836,7 +824,7 @@ public final class BridgeServer: @unchecked Sendable {
                 .sessionCompleted(
                     SessionCompleted(
                         sessionID: payload.sessionID,
-                        summary: payload.error ?? payload.lastAssistantMessage ?? payload.assistantMessagePreview ?? "\(payload.resolvedAgentTool.displayName) failed to finish the turn.",
+                        summary: payload.error ?? payload.lastAssistantMessage ?? payload.assistantMessagePreview ?? "Claude failed to finish the turn.",
                         timestamp: .now,
                         isInterrupt: payload.isInterrupt
                     )
@@ -862,7 +850,7 @@ public final class BridgeServer: @unchecked Sendable {
                 )
             }
 
-            let summary = payload.agentType.map { "Started \($0) subagent." } ?? "Started \(payload.resolvedAgentTool.displayName) subagent."
+            let summary = payload.agentType.map { "Started \($0) subagent." } ?? "Started Claude subagent."
             emit(
                 .activityUpdated(
                     SessionActivityUpdated(
@@ -886,7 +874,7 @@ public final class BridgeServer: @unchecked Sendable {
 
             let summary = payload.lastAssistantMessage ?? payload.assistantMessagePreview
                 ?? payload.agentType.map { "Finished \($0) subagent." }
-                ?? "Finished \(payload.resolvedAgentTool.displayName) subagent."
+                ?? "Finished Claude subagent."
             emit(
                 .activityUpdated(
                     SessionActivityUpdated(
@@ -908,7 +896,7 @@ public final class BridgeServer: @unchecked Sendable {
                 .activityUpdated(
                     SessionActivityUpdated(
                         sessionID: payload.sessionID,
-                        summary: "\(payload.resolvedAgentTool.displayName) is compacting the conversation.",
+                        summary: "Claude is compacting the conversation.",
                         phase: .running,
                         timestamp: .now
                     )
@@ -929,7 +917,7 @@ public final class BridgeServer: @unchecked Sendable {
                 .sessionCompleted(
                     SessionCompleted(
                         sessionID: payload.sessionID,
-                        summary: "\(payload.resolvedAgentTool.displayName) session ended.",
+                        summary: "Claude session ended.",
                         timestamp: .now,
                         isInterrupt: true,
                         isSessionEnd: true
@@ -1101,9 +1089,6 @@ public final class BridgeServer: @unchecked Sendable {
         }
     }
 
-    /// Dispatches a Cursor hook payload to the appropriate handler based on
-    /// the hook event name, managing session lifecycle, metadata, and
-    /// permission directives.
     private func handleCursorHook(_ payload: CursorHookPayload, from clientID: UUID) {
         switch payload.hookEventName {
         case .beforeSubmitPrompt:
@@ -1224,174 +1209,6 @@ public final class BridgeServer: @unchecked Sendable {
         }
     }
 
-    private func handleGeminiHook(_ payload: GeminiHookPayload, from clientID: UUID) {
-        switch payload.hookEventName {
-        case .sessionStart:
-            emit(
-                .sessionStarted(
-                    SessionStarted(
-                        sessionID: payload.sessionID,
-                        title: payload.sessionTitle,
-                        tool: .geminiCLI,
-                        origin: .live,
-                        initialPhase: .completed,
-                        summary: payload.implicitSummary,
-                        timestamp: .now,
-                        jumpTarget: payload.defaultJumpTarget,
-                        geminiMetadata: payload.defaultGeminiMetadata.isEmpty ? nil : payload.defaultGeminiMetadata
-                    )
-                )
-            )
-            send(.response(.acknowledged), to: clientID)
-
-        case .beforeAgent:
-            ensureGeminiSessionExists(for: payload)
-            synchronizeGeminiJumpTarget(for: payload)
-            synchronizeGeminiMetadata(for: payload)
-            emit(
-                .activityUpdated(
-                    SessionActivityUpdated(
-                        sessionID: payload.sessionID,
-                        summary: payload.implicitSummary,
-                        phase: .running,
-                        timestamp: .now
-                    )
-                )
-            )
-            send(.response(.acknowledged), to: clientID)
-
-        case .afterAgent:
-            ensureGeminiSessionExists(for: payload)
-            synchronizeGeminiJumpTarget(for: payload)
-            synchronizeGeminiMetadata(for: payload)
-            emit(
-                .sessionCompleted(
-                    SessionCompleted(
-                        sessionID: payload.sessionID,
-                        summary: payload.implicitSummary,
-                        timestamp: .now
-                    )
-                )
-            )
-            send(.response(.acknowledged), to: clientID)
-
-        case .sessionEnd:
-            ensureGeminiSessionExists(for: payload)
-            synchronizeGeminiJumpTarget(for: payload)
-            synchronizeGeminiMetadata(for: payload)
-            emit(
-                .sessionCompleted(
-                    SessionCompleted(
-                        sessionID: payload.sessionID,
-                        summary: payload.reason.map { "Gemini CLI session ended: \($0)." } ?? payload.implicitSummary,
-                        timestamp: .now,
-                        isInterrupt: true,
-                        isSessionEnd: true
-                    )
-                )
-            )
-            send(.response(.acknowledged), to: clientID)
-
-        case .notification:
-            ensureGeminiSessionExists(for: payload)
-            synchronizeGeminiJumpTarget(for: payload)
-            synchronizeGeminiMetadata(for: payload)
-
-            let currentPhase = localState.session(id: payload.sessionID)?.phase ?? .completed
-            emit(
-                .activityUpdated(
-                    SessionActivityUpdated(
-                        sessionID: payload.sessionID,
-                        summary: payload.notificationSummary,
-                        phase: currentPhase,
-                        timestamp: .now
-                    )
-                )
-            )
-
-            send(.response(.acknowledged), to: clientID)
-        }
-    }
-
-    private func ensureGeminiSessionExists(for payload: GeminiHookPayload) {
-        guard !hasSession(id: payload.sessionID) else {
-            return
-        }
-
-        emit(
-            .sessionStarted(
-                SessionStarted(
-                    sessionID: payload.sessionID,
-                    title: payload.sessionTitle,
-                    tool: .geminiCLI,
-                    origin: .live,
-                    initialPhase: .completed,
-                    summary: payload.hookEventName == .notification ? payload.notificationSummary : payload.implicitSummary,
-                    timestamp: .now,
-                    jumpTarget: payload.defaultJumpTarget,
-                    geminiMetadata: payload.defaultGeminiMetadata.isEmpty ? nil : payload.defaultGeminiMetadata
-                )
-            )
-        )
-    }
-
-    private func synchronizeGeminiJumpTarget(for payload: GeminiHookPayload) {
-        guard let existingSession = localState.session(id: payload.sessionID) else {
-            return
-        }
-
-        let jumpTarget = Self.mergeJumpTargetPreservingExistingResolvedFields(
-            incoming: payload.defaultJumpTarget,
-            existing: existingSession.jumpTarget
-        )
-
-        guard existingSession.jumpTarget != jumpTarget else {
-            return
-        }
-
-        emit(
-            .jumpTargetUpdated(
-                JumpTargetUpdated(
-                    sessionID: payload.sessionID,
-                    jumpTarget: jumpTarget,
-                    timestamp: .now
-                )
-            )
-        )
-    }
-
-    private func synchronizeGeminiMetadata(for payload: GeminiHookPayload) {
-        guard let existingSession = localState.session(id: payload.sessionID) else {
-            return
-        }
-
-        let update = payload.defaultGeminiMetadata
-        let merged = GeminiSessionMetadata(
-            transcriptPath: update.transcriptPath ?? existingSession.geminiMetadata?.transcriptPath,
-            initialUserPrompt: existingSession.geminiMetadata?.initialUserPrompt ?? update.initialUserPrompt ?? update.lastUserPrompt,
-            lastUserPrompt: update.lastUserPrompt ?? existingSession.geminiMetadata?.lastUserPrompt,
-            lastAssistantMessage: update.lastAssistantMessage ?? existingSession.geminiMetadata?.lastAssistantMessage,
-            lastAssistantMessageBody: update.lastAssistantMessageBody ?? existingSession.geminiMetadata?.lastAssistantMessageBody
-        )
-        guard !merged.isEmpty else {
-            return
-        }
-
-        guard existingSession.geminiMetadata != merged else {
-            return
-        }
-
-        emit(
-            .geminiSessionMetadataUpdated(
-                GeminiSessionMetadataUpdated(
-                    sessionID: payload.sessionID,
-                    geminiMetadata: merged,
-                    timestamp: .now
-                )
-            )
-        )
-    }
-
     private func clearStaleCursorInteractionIfNeeded(for sessionID: String) {
         guard pendingCursorInteractions.removeValue(forKey: sessionID) != nil else {
             return
@@ -1408,11 +1225,8 @@ public final class BridgeServer: @unchecked Sendable {
         )
     }
 
-    /// Creates a Cursor session if one does not already exist for the given
-    /// conversation, or re-creates it if the previous session was marked as
-    /// ended (e.g. after a staleness timeout).
     private func ensureCursorSessionExists(for payload: CursorHookPayload) {
-        if let existing = localState.session(id: payload.sessionID), !existing.isSessionEnded {
+        guard !hasSession(id: payload.sessionID) else {
             return
         }
 
@@ -1770,10 +1584,13 @@ public final class BridgeServer: @unchecked Sendable {
             return
         }
 
-        let jumpTarget = Self.mergeJumpTargetPreservingExistingResolvedFields(
-            incoming: payload.defaultJumpTarget,
-            existing: existingSession.jumpTarget
-        )
+        var jumpTarget = payload.defaultJumpTarget
+
+        if jumpTarget.terminalSessionID == nil,
+           let existingID = existingSession.jumpTarget?.terminalSessionID,
+           !existingID.isEmpty {
+            jumpTarget.terminalSessionID = existingID
+        }
 
         guard existingSession.jumpTarget != jumpTarget else {
             return
@@ -1842,59 +1659,22 @@ public final class BridgeServer: @unchecked Sendable {
         )
     }
 
-    /// Merges an incoming jumpTarget with the session's existing one so
-    /// that expensive-to-resolve fields are not silently cleared by a
-    /// later hook that failed to re-resolve them.
-    ///
-    /// Two fields fall into this category:
-    ///
-    /// 1. `terminalSessionID` — only SessionStart hooks actually query
-    ///    Ghostty's focused-terminal locator (subsequent hooks leave it
-    ///    nil to avoid stamping the wrong terminal if the user has
-    ///    since switched tabs). Without preservation, every non-start
-    ///    hook would overwrite a correctly-resolved session id with
-    ///    nil. Preservation has been in place since the Ghostty jump
-    ///    feature landed.
-    ///
-    /// 2. `warpPaneUUID` — resolved via a SQLite + process-tree walk
-    ///    at hook time. Legitimate transient failures (pgrep race,
-    ///    SQLite lock contention, Warp mid-startup) make the resolver
-    ///    return nil. Without preservation, the first such transient
-    ///    failure after a successful resolve would permanently drop
-    ///    the mapping for the rest of the session, demoting precision
-    ///    jump to bare activation until the NEXT lucky hook.
-    ///
-    /// Both are "resolved fields": the hook either succeeds at
-    /// finding them or reports nil. nil does NOT mean "absence is the
-    /// ground truth" — it means "this invocation could not determine
-    /// the value, prefer the last known good one".
-    static func mergeJumpTargetPreservingExistingResolvedFields(
-        incoming: JumpTarget,
-        existing: JumpTarget?
-    ) -> JumpTarget {
-        var merged = incoming
-        if merged.terminalSessionID == nil,
-           let existingID = existing?.terminalSessionID,
-           !existingID.isEmpty {
-            merged.terminalSessionID = existingID
-        }
-        if merged.warpPaneUUID == nil,
-           let existingUUID = existing?.warpPaneUUID,
-           !existingUUID.isEmpty {
-            merged.warpPaneUUID = existingUUID
-        }
-        return merged
-    }
-
     private func synchronizeClaudeJumpTarget(for payload: ClaudeHookPayload) {
         guard let existingSession = localState.session(id: payload.sessionID) else {
             return
         }
 
-        let jumpTarget = Self.mergeJumpTargetPreservingExistingResolvedFields(
-            incoming: payload.defaultJumpTarget,
-            existing: existingSession.jumpTarget
-        )
+        var jumpTarget = payload.defaultJumpTarget
+
+        // Preserve an existing Ghostty terminal session ID when the incoming
+        // payload doesn't carry one.  Only SessionStart hooks query the
+        // Ghostty focused-terminal locator; later hooks clear the field to
+        // avoid capturing the wrong terminal if the user switched tabs.
+        if jumpTarget.terminalSessionID == nil,
+           let existingID = existingSession.jumpTarget?.terminalSessionID,
+           !existingID.isEmpty {
+            jumpTarget.terminalSessionID = existingID
+        }
 
         guard existingSession.jumpTarget != jumpTarget else {
             return
@@ -2300,15 +2080,14 @@ public final class BridgeServer: @unchecked Sendable {
             directive = .permissionRequest(
                 .allow(updatedInput: finalInput, updatedPermissions: updatedPermissions)
             )
-            summary = "\(payload.resolvedAgentTool.displayName)'s questions were answered."
+            summary = "Claude's questions were answered."
             phase = .running
 
-        case let (.question(payload, _), .deny(message, interrupt)):
-            let fallback = "Declined to answer \(payload.resolvedAgentTool.displayName)'s questions."
+        case let (.question(_, _), .deny(message, interrupt)):
             directive = .permissionRequest(
-                .deny(message: message ?? fallback, interrupt: interrupt)
+                .deny(message: message ?? "Declined to answer Claude's questions.", interrupt: interrupt)
             )
-            summary = message ?? fallback
+            summary = message ?? "Declined to answer Claude's questions."
             phase = .completed
         }
 
@@ -2352,7 +2131,7 @@ public final class BridgeServer: @unchecked Sendable {
             response: response
         )
         let summary = response.displaySummary.isEmpty
-            ? "Answered \(payload.resolvedAgentTool.displayName)'s questions."
+            ? "Answered Claude's questions."
             : "Answered: \(response.displaySummary)"
 
         emit(

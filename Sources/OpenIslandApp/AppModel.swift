@@ -4,35 +4,12 @@ import Observation
 import OpenIslandCore
 import SwiftUI
 
-extension Notification.Name {
-    /// Posted by `AppModel.showOnboarding()` to ask `SettingsView` to
-    /// switch to the Setup tab. Lets the empty-state CTAs deliver the
-    /// user to the right place without `SettingsView`'s `@State` having
-    /// to leak into `AppModel`.
-    static let openIslandSelectSetupTab = Notification.Name("openIslandSelectSetupTab")
-}
-
 @MainActor
 @Observable
 final class AppModel {
     private static let soundMutedDefaultsKey = "overlay.sound.muted"
     private static let showDockIconDefaultsKey = "app.showDockIcon"
     private static let hapticFeedbackEnabledDefaultsKey = "app.hapticFeedbackEnabled"
-    private static let islandAppearanceModeDefaultsKey = "appearance.island.mode"
-    private static let islandClosedDisplayStyleDefaultsKey = "appearance.island.closedDisplayStyle"
-    private static let islandHideIdleToEdgeDefaultsKey = "appearance.island.hideIdleToEdge"
-    private static let islandPixelShapeStyleDefaultsKey = "appearance.island.pixelShapeStyle"
-    private static let islandStatusColorsDefaultsKey = "appearance.island.statusColors"
-    private static let showCodexUsageDefaultsKey = "app.showCodexUsage"
-    private static let completionReplyEnabledDefaultsKey = "feature.completionReply.enabled"
-    private static let suppressFrontmostNotificationsDefaultsKey = "app.suppressFrontmostNotifications"
-
-    static let defaultStatusColors: [SessionPhase: String] = [
-        .running: "#6E9FFF",
-        .waitingForApproval: "#FFB547",
-        .waitingForAnswer: "#FFD95A",
-        .completed: "#42E86B",
-    ]
     private static let syntheticClaudeSessionPrefix = "claude-process:"
     private static let liveSessionStalenessWindow: TimeInterval = 15 * 60
     private static let jumpOverlayDismissLeadTime: Duration = .milliseconds(20)
@@ -59,7 +36,6 @@ final class AppModel {
     let overlay = OverlayUICoordinator()
     let discovery = SessionDiscoveryCoordinator()
     let monitoring = ProcessMonitoringCoordinator()
-    let codexAppServer = CodexAppServerCoordinator()
     let updateChecker = UpdateChecker()
 
     var notchStatus: NotchStatus {
@@ -117,46 +93,10 @@ final class AppModel {
     var codexHealthReport: HookHealthReport? { hooks.codexHealthReport }
     var cursorHooksInstalled: Bool { hooks.cursorHooksInstalled }
     var isCursorHookSetupBusy: Bool { hooks.isCursorHookSetupBusy }
-    var cursorHookStatus: CursorHookInstallationStatus? { hooks.cursorHookStatus }
     var cursorHookStatusTitle: String { hooks.cursorHookStatusTitle }
     var cursorHookStatusSummary: String { hooks.cursorHookStatusSummary }
-    var geminiHooksInstalled: Bool { hooks.geminiHooksInstalled }
-    var isGeminiHookSetupBusy: Bool { hooks.isGeminiHookSetupBusy }
-    var geminiHookStatus: GeminiHookInstallationStatus? { hooks.geminiHookStatus }
-    var geminiHookStatusTitle: String { hooks.geminiHookStatusTitle }
-    var geminiHookStatusSummary: String { hooks.geminiHookStatusSummary }
-    var kimiHooksInstalled: Bool { hooks.kimiHooksInstalled }
-    var isKimiHookSetupBusy: Bool { hooks.isKimiHookSetupBusy }
-    var kimiHookStatus: KimiHookInstallationStatus? { hooks.kimiHookStatus }
-    var kimiHookStatusTitle: String { hooks.kimiHookStatusTitle }
-    var kimiHookStatusSummary: String { hooks.kimiHookStatusSummary }
     var codexHookStatusTitle: String { hooks.codexHookStatusTitle }
     var codexHookStatusSummary: String { hooks.codexHookStatusSummary }
-
-    /// Mirrors `AgentIntentStore.firstLaunchCompleted`. Onboarding sets this
-    /// to true after the user completes (or explicitly skips) the flow;
-    /// legacy migration also flips it for users upgrading with existing
-    /// hooks.
-    var firstLaunchCompleted: Bool {
-        get { hooks.intentStore.firstLaunchCompleted }
-        set { hooks.intentStore.firstLaunchCompleted = newValue }
-    }
-
-    /// True if at least one managed hook is currently present on disk.
-    /// Drives the "configure agents" empty-state prompts in the island and
-    /// the settings window.
-    var hasAnyInstalledAgent: Bool {
-        hooks.claudeHooksInstalled
-            || hooks.codexHooksInstalled
-            || hooks.cursorHooksInstalled
-            || hooks.qoderHooksInstalled
-            || hooks.qwenCodeHooksInstalled
-            || hooks.factoryHooksInstalled
-            || hooks.codebuddyHooksInstalled
-            || hooks.openCodePluginInstalled
-            || hooks.geminiHooksInstalled
-            || hooks.kimiHooksInstalled
-    }
     func refreshCodexHookStatus() { hooks.refreshCodexHookStatus() }
     func refreshClaudeHookStatus() { hooks.refreshClaudeHookStatus() }
     func refreshOpenCodePluginStatus() { hooks.refreshOpenCodePluginStatus() }
@@ -180,12 +120,6 @@ final class AppModel {
     func uninstallOpenCodePlugin() { hooks.uninstallOpenCodePlugin() }
     func installCursorHooks() { hooks.installCursorHooks() }
     func uninstallCursorHooks() { hooks.uninstallCursorHooks() }
-    func refreshGeminiHookStatus() { hooks.refreshGeminiHookStatus() }
-    func installGeminiHooks() { hooks.installGeminiHooks() }
-    func uninstallGeminiHooks() { hooks.uninstallGeminiHooks() }
-    func refreshKimiHookStatus() { hooks.refreshKimiHookStatus() }
-    func installKimiHooks() { hooks.installKimiHooks() }
-    func uninstallKimiHooks() { hooks.uninstallKimiHooks() }
     func installClaudeUsageBridge() { hooks.installClaudeUsageBridge() }
     func uninstallClaudeUsageBridge() { hooks.uninstallClaudeUsageBridge() }
     func updateClaudeConfigDirectory(to newDirectory: URL?) { hooks.updateClaudeConfigDirectory(to: newDirectory) }
@@ -239,25 +173,6 @@ final class AppModel {
             UserDefaults.standard.set(hapticFeedbackEnabled, forKey: Self.hapticFeedbackEnabledDefaultsKey)
         }
     }
-    var showCodexUsage: Bool = false {
-        didSet {
-            guard hasFinishedInit, showCodexUsage != oldValue else { return }
-            UserDefaults.standard.set(showCodexUsage, forKey: Self.showCodexUsageDefaultsKey)
-        }
-    }
-    var completionReplyEnabled: Bool = false {
-        didSet {
-            guard hasFinishedInit, completionReplyEnabled != oldValue else { return }
-            UserDefaults.standard.set(completionReplyEnabled, forKey: Self.completionReplyEnabledDefaultsKey)
-            refreshOverlayPlacementIfVisible()
-        }
-    }
-    var suppressFrontmostNotifications: Bool = true {
-        didSet {
-            guard hasFinishedInit, suppressFrontmostNotifications != oldValue else { return }
-            UserDefaults.standard.set(suppressFrontmostNotifications, forKey: Self.suppressFrontmostNotificationsDefaultsKey)
-        }
-    }
     var isSoundMuted = false {
         didSet {
             guard isSoundMuted != oldValue else {
@@ -280,169 +195,11 @@ final class AppModel {
         get { overlay.overlayDisplaySelectionID }
         set { overlay.overlayDisplaySelectionID = newValue }
     }
-
-    // MARK: - Appearance
-
-    var islandAppearanceMode: IslandAppearanceMode = .default {
-        didSet {
-            guard islandAppearanceMode != oldValue else { return }
-            UserDefaults.standard.set(islandAppearanceMode.rawValue, forKey: Self.islandAppearanceModeDefaultsKey)
-            refreshOverlayPlacementIfVisible()
-        }
-    }
-
-    var isCustomAppearance: Bool { islandAppearanceMode == .custom }
-
-    var islandClosedDisplayStyle: IslandClosedDisplayStyle = .detailed {
-        didSet {
-            guard islandClosedDisplayStyle != oldValue else { return }
-            UserDefaults.standard.set(islandClosedDisplayStyle.rawValue, forKey: Self.islandClosedDisplayStyleDefaultsKey)
-            refreshOverlayPlacementIfVisible()
-        }
-    }
-    var hideIdleIslandToEdge: Bool = false {
-        didSet {
-            guard hideIdleIslandToEdge != oldValue else { return }
-            UserDefaults.standard.set(hideIdleIslandToEdge, forKey: Self.islandHideIdleToEdgeDefaultsKey)
-            refreshOverlayPlacementIfVisible()
-        }
-    }
-    var islandPixelShapeStyle: IslandPixelShapeStyle = .bars {
-        didSet {
-            guard islandPixelShapeStyle != oldValue else { return }
-            UserDefaults.standard.set(islandPixelShapeStyle.rawValue, forKey: Self.islandPixelShapeStyleDefaultsKey)
-        }
-    }
-    var statusColorHexes: [SessionPhase: String] = AppModel.defaultStatusColors {
-        didSet {
-            guard statusColorHexes != oldValue else { return }
-            let encoded = statusColorHexes.reduce(into: [String: String]()) { $0[$1.key.rawValue] = $1.value }
-            UserDefaults.standard.set(encoded, forKey: Self.islandStatusColorsDefaultsKey)
-            _cachedStatusColors = [:]
-        }
-    }
-    var customAvatarImage: NSImage? = nil
-    private var _cachedStatusColors: [SessionPhase: Color] = [:]
-
-    func statusColor(for phase: SessionPhase) -> Color {
-        if let cached = _cachedStatusColors[phase] { return cached }
-        let hex = statusColorHexes[phase] ?? Self.defaultStatusColors[phase] ?? "#6E9FFF"
-        let color = Color(hex: hex) ?? .white
-        _cachedStatusColors[phase] = color
-        return color
-    }
-
-    func setStatusColor(_ color: Color, for phase: SessionPhase) {
-        guard let hex = color.opaqueHexString else { return }
-        statusColorHexes[phase] = hex
-    }
-
-    var showsIdleEdgeWhenCollapsed: Bool {
-        hideIdleIslandToEdge && notchStatus == .closed
-    }
-
-    func importCustomAvatar() {
-        let panel = NSOpenPanel()
-        panel.canChooseFiles = true
-        panel.canChooseDirectories = false
-        panel.allowsMultipleSelection = false
-        panel.showsHiddenFiles = true
-        panel.allowedContentTypes = [.png, .jpeg, .heic, .tiff]
-        guard panel.runModal() == .OK, let url = panel.url else { return }
-        do {
-            customAvatarImage = try AvatarImageStore.importImage(from: url)
-            islandPixelShapeStyle = .custom
-        } catch {
-            lastActionMessage = error.localizedDescription
-        }
-    }
-
-    func removeCustomAvatar() {
-        do {
-            try AvatarImageStore.removeCurrentImage()
-            customAvatarImage = nil
-            if islandPixelShapeStyle == .custom {
-                islandPixelShapeStyle = .bars
-            }
-        } catch {
-            lastActionMessage = error.localizedDescription
-        }
-    }
-
     @ObservationIgnored
     var openSettingsWindow: (() -> Void)?
 
     @ObservationIgnored
     private var hasFinishedInit = false
-
-    // MARK: - Watch Notification
-
-    private static let watchNotificationEnabledKey = "watch.notification.enabled"
-
-    var watchNotificationEnabled: Bool = false {
-        didSet {
-            guard watchNotificationEnabled != oldValue else { return }
-            UserDefaults.standard.set(watchNotificationEnabled, forKey: Self.watchNotificationEnabledKey)
-            if watchNotificationEnabled {
-                startWatchRelay()
-            } else {
-                stopWatchRelay()
-            }
-        }
-    }
-
-    @ObservationIgnored
-    private(set) var watchRelay: WatchNotificationRelay?
-
-    /// Current pairing code for display in the settings UI.
-    var watchPairingCode: String {
-        watchRelay?.endpoint.currentCode() ?? "----"
-    }
-
-    /// Number of currently connected iPhone SSE clients.
-    var watchConnectedDevices: Int {
-        // Placeholder — endpoint doesn't expose count yet
-        0
-    }
-
-    private func startWatchRelay() {
-        guard watchRelay == nil else { return }
-        let relay = WatchNotificationRelay()
-        setupWatchRelayCallbacks(relay)
-        relay.start()
-        self.watchRelay = relay
-    }
-
-    /// Wire up resolution callbacks so Watch/iPhone actions flow back to the bridge.
-    private func setupWatchRelayCallbacks(_ relay: WatchNotificationRelay) {
-        relay.onResolvePermission = { [weak self] sessionID, approved in
-            Task { @MainActor [weak self] in
-                self?.approvePermission(for: sessionID, approved: approved)
-            }
-        }
-
-        relay.onAnswerQuestion = { [weak self] sessionID, answer in
-            Task { @MainActor [weak self] in
-                self?.answerQuestion(
-                    for: sessionID,
-                    answer: QuestionPromptResponse(answer: answer)
-                )
-            }
-        }
-
-        relay.endpoint.activeSessionCountProvider = { [weak self] in
-            // Safe to call from any queue — reads a snapshot count.
-            guard let self else { return 0 }
-            return MainActor.assumeIsolated {
-                self.state.sessions.count
-            }
-        }
-    }
-
-    private func stopWatchRelay() {
-        watchRelay?.stop()
-        watchRelay = nil
-    }
 
     var ignoresPointerExitDuringHarness = false
     var disablesOverlayEventMonitoringDuringHarness = false
@@ -465,9 +222,6 @@ final class AppModel {
     @ObservationIgnored
     private let terminalJumpAction: @Sendable (JumpTarget) throws -> String
 
-    @ObservationIgnored
-    private let isNotificationSessionAlreadyFrontmost: @Sendable (AgentSession) async -> Bool
-
 
     @ObservationIgnored
     var harnessRuntimeMonitor: HarnessRuntimeMonitor?
@@ -476,62 +230,20 @@ final class AppModel {
     @ObservationIgnored
     private var jumpTask: Task<Void, Never>?
 
-    @ObservationIgnored
-    private var notificationPresentationTask: Task<Void, Never>?
-
     init(
         terminalJumpAction: @escaping @Sendable (JumpTarget) throws -> String = { target in
             try TerminalJumpService().jump(to: target)
-        },
-        isNotificationSessionAlreadyFrontmost: @escaping @Sendable (AgentSession) async -> Bool = { session in
-            await ForegroundTerminalSessionProbe().matches(session: session)
         }
     ) {
         self.terminalJumpAction = terminalJumpAction
-        self.isNotificationSessionAlreadyFrontmost = isNotificationSessionAlreadyFrontmost
         UserDefaults.standard.register(defaults: [
             Self.showDockIconDefaultsKey: true,
             Self.hapticFeedbackEnabledDefaultsKey: false,
-            Self.completionReplyEnabledDefaultsKey: false,
-            Self.suppressFrontmostNotificationsDefaultsKey: true,
         ])
         isSoundMuted = UserDefaults.standard.bool(forKey: Self.soundMutedDefaultsKey)
         selectedSoundName = NotificationSoundService.selectedSoundName
         showDockIcon = UserDefaults.standard.bool(forKey: Self.showDockIconDefaultsKey)
         hapticFeedbackEnabled = UserDefaults.standard.bool(forKey: Self.hapticFeedbackEnabledDefaultsKey)
-        suppressFrontmostNotifications = UserDefaults.standard.bool(forKey: Self.suppressFrontmostNotificationsDefaultsKey)
-        if UserDefaults.standard.object(forKey: Self.showCodexUsageDefaultsKey) != nil {
-            showCodexUsage = UserDefaults.standard.bool(forKey: Self.showCodexUsageDefaultsKey)
-        } else {
-            showCodexUsage = FileManager.default.fileExists(
-                atPath: CodexRolloutDiscovery.defaultRootURL.path
-            )
-        }
-        completionReplyEnabled = UserDefaults.standard.bool(forKey: Self.completionReplyEnabledDefaultsKey)
-        islandAppearanceMode = IslandAppearanceMode(
-            rawValue: UserDefaults.standard.string(forKey: Self.islandAppearanceModeDefaultsKey) ?? ""
-        ) ?? .default
-        islandClosedDisplayStyle = IslandClosedDisplayStyle(
-            rawValue: UserDefaults.standard.string(forKey: Self.islandClosedDisplayStyleDefaultsKey) ?? ""
-        ) ?? .detailed
-        hideIdleIslandToEdge = UserDefaults.standard.bool(forKey: Self.islandHideIdleToEdgeDefaultsKey)
-        islandPixelShapeStyle = IslandPixelShapeStyle(
-            rawValue: UserDefaults.standard.string(forKey: Self.islandPixelShapeStyleDefaultsKey) ?? ""
-        ) ?? .bars
-        customAvatarImage = AvatarImageStore.currentImage()
-        if let saved = UserDefaults.standard.dictionary(forKey: Self.islandStatusColorsDefaultsKey) as? [String: String] {
-            var colors = Self.defaultStatusColors
-            for (key, value) in saved {
-                if let phase = SessionPhase(rawValue: key) {
-                    colors[phase] = value.normalizedHexColorString
-                }
-            }
-            statusColorHexes = colors
-        }
-        watchNotificationEnabled = UserDefaults.standard.bool(forKey: Self.watchNotificationEnabledKey)
-        if watchNotificationEnabled {
-            startWatchRelay()
-        }
 
         overlay.appModel = self
         overlay.restoreDisplayPreference()
@@ -573,16 +285,6 @@ final class AppModel {
             }
         }
 
-        codexAppServer.onEvent = { [weak self] event in
-            self?.applyTrackedEvent(event, ingress: .bridge)
-        }
-        codexAppServer.onStatusMessage = { [weak self] message in
-            self?.lastActionMessage = message
-        }
-        codexAppServer.isSessionTracked = { [weak self] id in
-            self?.state.session(id: id) != nil
-        }
-
         monitoring.syntheticClaudeSessionPrefix = Self.syntheticClaudeSessionPrefix
         monitoring.stateAccessor = { [weak self] in self?.state ?? SessionState() }
         monitoring.stateUpdater = { [weak self] in self?.state = $0 }
@@ -593,16 +295,7 @@ final class AppModel {
         monitoring.onPersistenceNeeded = { [weak self] in
             self?.discovery.scheduleCodexSessionPersistence()
             self?.discovery.scheduleClaudeSessionPersistence()
-            self?.discovery.scheduleOpenCodeSessionPersistence()
             self?.discovery.scheduleCursorSessionPersistence()
-        }
-        monitoring.onCodexAppRunningChanged = { [weak self] isRunning in
-            guard let self else { return }
-            if isRunning {
-                self.codexAppServer.ensureConnected()
-            } else {
-                self.codexAppServer.disconnect()
-            }
         }
 
         refreshOverlayDisplayConfiguration()
@@ -771,11 +464,21 @@ final class AppModel {
         if loadRuntimeState {
             isResolvingInitialLiveSessions = true
 
+            // Capture boot animation flag before entering the Task so the
+            // animation fires only after discovery is applied. This prevents
+            // sessions discovered from transcript files or active processes
+            // from suddenly injecting into state mid-animation and causing
+            // a brief flash of stale or unexpected sessions on startup.
+            let shouldAnimate = shouldPerformBootAnimation
+
             Task.detached(priority: .userInitiated) { [weak self] in
                 guard let self else { return }
                 let payload = self.discovery.loadStartupDiscoveryPayload()
                 await MainActor.run {
                     self.applyStartupDiscoveryPayload(payload)
+                    if shouldAnimate {
+                        self.performBootAnimation()
+                    }
                 }
             }
 
@@ -787,10 +490,8 @@ final class AppModel {
             hooks.refreshCursorHookStatus()
             hooks.refreshClaudeUsageState()
             hooks.startClaudeUsageMonitoringIfNeeded()
-            if showCodexUsage {
-                hooks.refreshCodexUsageState()
-                hooks.startCodexUsageMonitoringIfNeeded()
-            }
+            hooks.refreshCodexUsageState()
+            hooks.startCodexUsageMonitoringIfNeeded()
             updateChecker.startIfNeeded()
 
         } else {
@@ -798,7 +499,9 @@ final class AppModel {
         }
         refreshOverlayDisplayConfiguration()
         ensureOverlayPanel()
-        if shouldPerformBootAnimation {
+        if !loadRuntimeState, shouldPerformBootAnimation {
+            // When not loading runtime state (harness/test mode), animate immediately
+            // since there is no discovery task to wait for.
             performBootAnimation()
         }
 
@@ -953,15 +656,6 @@ final class AppModel {
             window.makeKey()
         }
         NSApp.activate(ignoringOtherApps: true)
-    }
-
-    /// Opens Settings on the Setup tab so the user can install hooks.
-    /// Used by every "Set up agents" CTA in the empty-state UI. A
-    /// dedicated first-run onboarding window will replace this in a
-    /// later PR; until then this is the canonical entry point.
-    func showOnboarding() {
-        showSettings()
-        NotificationCenter.default.post(name: .openIslandSelectSetupTab, object: nil)
     }
 
     func showControlCenter() {
@@ -1134,24 +828,6 @@ final class AppModel {
         )
     }
 
-    func replyToSession(_ session: AgentSession, text: String) {
-        dismissNotificationSurfaceIfPresent(for: session.id)
-        synchronizeSelection()
-        refreshOverlayPlacementIfVisible()
-
-        lastActionMessage = "Sending reply to \(session.title)…"
-
-        Task { [weak self] in
-            let success = await Task.detached(priority: .userInitiated) {
-                TerminalTextSender.send(text, to: session)
-            }.value
-
-            self?.lastActionMessage = success
-                ? "Sent reply to \(session.title)."
-                : "Failed to send reply to \(session.title)."
-        }
-    }
-
 
     private func send(_ command: BridgeCommand, userMessage: String) {
         lastActionMessage = userMessage
@@ -1213,90 +889,19 @@ final class AppModel {
         refreshOverlayPlacementIfVisible()
         discovery.scheduleCodexSessionPersistence()
         discovery.scheduleClaudeSessionPersistence()
-        discovery.scheduleOpenCodeSessionPersistence()
         discovery.scheduleCursorSessionPersistence()
-
-        // Push relevant events to the Watch/iPhone via the relay
-        if let relay = watchRelay {
-            let eventSessionID: String? = {
-                switch event {
-                case let .sessionStarted(p): return p.sessionID
-                case let .activityUpdated(p): return p.sessionID
-                case let .permissionRequested(p): return p.sessionID
-                case let .questionAsked(p): return p.sessionID
-                case let .sessionCompleted(p): return p.sessionID
-                case let .jumpTargetUpdated(p): return p.sessionID
-                case let .sessionMetadataUpdated(p): return p.sessionID
-                case let .claudeSessionMetadataUpdated(p): return p.sessionID
-                case let .geminiSessionMetadataUpdated(p): return p.sessionID
-                case let .openCodeSessionMetadataUpdated(p): return p.sessionID
-                case let .cursorSessionMetadataUpdated(p): return p.sessionID
-                case let .actionableStateResolved(p): return p.sessionID
-                }
-            }()
-            let session = eventSessionID.flatMap { state.session(id: $0) }
-            relay.notifyEvent(event, session: session)
-        }
 
         if updateLastActionMessage {
             lastActionMessage = describe(event)
         }
 
-        if let surface = IslandSurface.notificationSurface(for: event) {
-            scheduleNotificationSurfacePresentationIfNeeded(
-                surface,
-                wasAlreadyCompleted: wasAlreadyCompleted,
-                ingress: ingress
-            )
-        }
-    }
-
-    private func scheduleNotificationSurfacePresentationIfNeeded(
-        _ surface: IslandSurface,
-        wasAlreadyCompleted: Bool,
-        ingress: TrackedEventIngress
-    ) {
-        guard !wasAlreadyCompleted,
-              notificationSurfaceIsEligibleForPresentation(surface, ingress: ingress),
-              let sessionID = surface.sessionID,
-              let session = state.session(id: sessionID) else {
-            return
-        }
-
-        guard suppressFrontmostNotifications else {
+        if let surface = IslandSurface.notificationSurface(for: event),
+           !wasAlreadyCompleted,
+           surface.sessionID.flatMap({ state.session(id: $0) }) != nil,
+           (ingress == .bridge || !isResolvingInitialLiveSessions),
+           notchStatus == .closed || notchOpenReason == .notification {
             presentNotificationSurface(surface)
-            return
         }
-
-        notificationPresentationTask?.cancel()
-        notificationPresentationTask = Task { @MainActor [weak self] in
-            guard let self else {
-                return
-            }
-
-            let shouldSuppress = await self.isNotificationSessionAlreadyFrontmost(session)
-            guard !Task.isCancelled,
-                  !shouldSuppress,
-                  self.notificationSurfaceIsEligibleForPresentation(surface, ingress: ingress) else {
-                return
-            }
-
-            self.presentNotificationSurface(surface)
-        }
-    }
-
-    private func notificationSurfaceIsEligibleForPresentation(
-        _ surface: IslandSurface,
-        ingress: TrackedEventIngress
-    ) -> Bool {
-        guard let sessionID = surface.sessionID,
-              let session = state.session(id: sessionID) else {
-            return false
-        }
-
-        return (ingress == .bridge || !isResolvingInitialLiveSessions)
-            && (notchStatus == .closed || notchOpenReason == .notification)
-            && surface.matchesCurrentState(of: session)
     }
 
     private func synchronizeSelection() {
@@ -1331,28 +936,15 @@ final class AppModel {
                 // Wait for all status reads to complete before checking install state.
                 await self.hooks.refreshAllHookStatusAndWait()
 
-                // Reconcile persisted intent with what is actually on disk. For
-                // legacy users this records existing hooks as `.installed` and
-                // marks first-launch as complete so onboarding does not appear
-                // on upgrade. Must run after status reads and before any
-                // install decision.
-                self.hooks.migrateIntentStoreIfNeeded()
-
-                // Install only hooks the user has not explicitly opted out of.
-                // `shouldAutoInstall` skips `.uninstalled` agents and agents
-                // whose hooks are already present — it is the single checkpoint
-                // that fixes #324.
-                if self.hooks.shouldAutoInstall(.claudeCode) { self.installClaudeHooks() }
-                if self.hooks.shouldAutoInstall(.codex) { self.installCodexHooks() }
-                if self.hooks.shouldAutoInstall(.qoder) { self.installQoderHooks() }
-                if self.hooks.shouldAutoInstall(.qwenCode) { self.installQwenCodeHooks() }
-                if self.hooks.shouldAutoInstall(.factory) { self.installFactoryHooks() }
-                if self.hooks.shouldAutoInstall(.codebuddy) { self.installCodebuddyHooks() }
-                if self.hooks.shouldAutoInstall(.openCode) { self.installOpenCodePlugin() }
-                if self.hooks.shouldAutoInstall(.cursor) { self.installCursorHooks() }
-                if self.hooks.shouldAutoInstall(.gemini) { self.installGeminiHooks() }
-                if self.hooks.shouldAutoInstall(.kimi) { self.installKimiHooks() }
-                if self.hooks.shouldAutoInstall(.claudeUsageBridge) { self.installClaudeUsageBridge() }
+                if !self.claudeHooksInstalled { self.installClaudeHooks() }
+                if !self.codexHooksInstalled { self.installCodexHooks() }
+                if !self.qoderHooksInstalled { self.installQoderHooks() }
+                if !self.qwenCodeHooksInstalled { self.installQwenCodeHooks() }
+                if !self.factoryHooksInstalled { self.installFactoryHooks() }
+                if !self.codebuddyHooksInstalled { self.installCodebuddyHooks() }
+                if !self.openCodePluginInstalled { self.installOpenCodePlugin() }
+                if !self.cursorHooksInstalled { self.installCursorHooks() }
+                if !self.claudeUsageInstalled { self.installClaudeUsageBridge() }
 
                 // Run health checks after install to detect stale paths, conflicts, etc.
                 try? await Task.sleep(for: .milliseconds(500))
@@ -1489,8 +1081,6 @@ final class AppModel {
             }
 
             return payload.claudeMetadata.lastAssistantMessage ?? "Claude session metadata updated."
-        case let .geminiSessionMetadataUpdated(payload):
-            return payload.geminiMetadata.lastAssistantMessage ?? "Gemini session metadata updated."
         case let .openCodeSessionMetadataUpdated(payload):
             if let currentTool = payload.openCodeMetadata.currentTool {
                 return "OpenCode is running \(currentTool)."
@@ -1512,34 +1102,4 @@ final class AppModel {
         NSApplication.shared.terminate(nil)
     }
 
-}
-
-// MARK: - Hex color helpers
-
-extension String {
-    var normalizedHexColorString: String {
-        let trimmed = trimmingCharacters(in: .whitespacesAndNewlines)
-        let raw = trimmed.hasPrefix("#") ? String(trimmed.dropFirst()) : trimmed
-        guard raw.count == 6, raw.allSatisfy(\.isHexDigit) else { return "#6E9FFF" }
-        return "#\(raw.uppercased())"
-    }
-}
-
-extension Color {
-    init?(hex: String) {
-        let raw = String(hex.normalizedHexColorString.dropFirst())
-        guard let value = Int(raw, radix: 16) else { return nil }
-        let red = Double((value >> 16) & 0xFF) / 255
-        let green = Double((value >> 8) & 0xFF) / 255
-        let blue = Double(value & 0xFF) / 255
-        self = Color(red: red, green: green, blue: blue)
-    }
-
-    var opaqueHexString: String? {
-        guard let nsColor = NSColor(self).usingColorSpace(.deviceRGB) else { return nil }
-        let r = Int(round(nsColor.redComponent * 255))
-        let g = Int(round(nsColor.greenComponent * 255))
-        let b = Int(round(nsColor.blueComponent * 255))
-        return String(format: "#%02X%02X%02X", r, g, b)
-    }
 }

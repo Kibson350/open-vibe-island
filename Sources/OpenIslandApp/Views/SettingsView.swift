@@ -9,61 +9,49 @@ enum SettingsTab: String, CaseIterable, Identifiable {
     case setup
     case display
     case sound
-    case appearance
-    case watch
     case shortcuts
-    case lab
     case about
 
     var id: String { rawValue }
 
     func label(_ lang: LanguageManager) -> String {
         switch self {
-        case .general:    lang.t("settings.tab.general")
-        case .setup:      lang.t("settings.tab.setup")
-        case .appearance: lang.t("settings.tab.appearance")
-        case .display:    lang.t("settings.tab.display")
-        case .sound:      lang.t("settings.tab.sound")
-        case .watch:      "Watch"
-        case .shortcuts:  lang.t("settings.tab.shortcuts")
-        case .lab:        lang.t("settings.tab.lab")
-        case .about:      lang.t("settings.tab.about")
+        case .general:   lang.t("settings.tab.general")
+        case .setup:     lang.t("settings.tab.setup")
+        case .display:   lang.t("settings.tab.display")
+        case .sound:     lang.t("settings.tab.sound")
+        case .shortcuts: lang.t("settings.tab.shortcuts")
+        case .about:     lang.t("settings.tab.about")
         }
     }
 
     var icon: String {
         switch self {
-        case .general:    "gearshape.fill"
-        case .setup:      "arrow.down.circle.fill"
-        case .appearance: "paintbrush.fill"
-        case .display:    "textformat.size"
-        case .sound:      "speaker.wave.2.fill"
-        case .watch:      "applewatch"
-        case .shortcuts:  "keyboard.fill"
-        case .lab:        "flask.fill"
-        case .about:      "info.circle.fill"
+        case .general:   "gearshape.fill"
+        case .setup:     "arrow.down.circle.fill"
+        case .display:   "textformat.size"
+        case .sound:     "speaker.wave.2.fill"
+        case .shortcuts: "keyboard.fill"
+        case .about:     "info.circle.fill"
         }
     }
 
     var iconColor: Color {
         switch self {
-        case .general:    .gray
-        case .setup:      .orange
-        case .appearance: .purple
-        case .display:    .blue
-        case .sound:      .green
-        case .watch:      .cyan
-        case .shortcuts:  .gray
-        case .lab:        .pink
-        case .about:      .blue
+        case .general:   .gray
+        case .setup:     .orange
+        case .display:   .blue
+        case .sound:     .green
+        case .shortcuts: .gray
+        case .about:     .blue
         }
     }
 
     var section: SettingsSection {
         switch self {
-        case .general, .setup, .display, .sound, .appearance, .watch: .system
-        case .shortcuts, .lab:                                        .advanced
-        case .about:                                                  .app
+        case .general, .setup, .display, .sound: .system
+        case .shortcuts:                          .advanced
+        case .about:                             .app
         }
     }
 }
@@ -101,11 +89,9 @@ struct SettingsView: View {
         } detail: {
             detailView
         }
-        .frame(minWidth: 680, idealWidth: 780, minHeight: 480, idealHeight: 560)
+        .frame(minWidth: 680, minHeight: 480)
+        .frame(width: 780, height: 560)
         .preferredColorScheme(.dark)
-        .onReceive(NotificationCenter.default.publisher(for: .openIslandSelectSetupTab)) { _ in
-            selectedTab = .setup
-        }
     }
 
     // MARK: Sidebar
@@ -140,18 +126,12 @@ struct SettingsView: View {
                 GeneralSettingsPane(model: model)
             case .setup:
                 SetupSettingsPane(model: model)
-            case .appearance:
-                AppearanceSettingsPane(model: model)
             case .display:
                 DisplaySettingsPane(model: model)
             case .sound:
                 SoundSettingsPane(model: model)
-            case .watch:
-                WatchSettingsPane(model: model)
             case .shortcuts:
                 PlaceholderSettingsPane(model: model, titleKey: "settings.tab.shortcuts", subtitleKey: "settings.shortcuts.comingSoon")
-            case .lab:
-                PlaceholderSettingsPane(model: model, titleKey: "settings.tab.lab", subtitleKey: "settings.lab.comingSoon")
             case .about:
                 AboutSettingsPane(model: model)
             }
@@ -200,7 +180,6 @@ struct GeneralSettingsPane: View {
                     Text(lang.t("settings.general.languageSystem")).tag(LanguageManager.AppLanguage.system)
                     Text(lang.t("settings.general.languageEnglish")).tag(LanguageManager.AppLanguage.en)
                     Text(lang.t("settings.general.languageChinese")).tag(LanguageManager.AppLanguage.zhHans)
-                    Text(lang.t("settings.general.languageTraditionalChinese")).tag(LanguageManager.AppLanguage.zhHant)
                 }
             }
 
@@ -213,14 +192,6 @@ struct GeneralSettingsPane: View {
                 Toggle(lang.t("settings.general.hapticFeedback"), isOn: Binding(
                     get: { model.hapticFeedbackEnabled },
                     set: { model.hapticFeedbackEnabled = $0 }
-                ))
-                Toggle(lang.t("settings.general.completionReply"), isOn: Binding(
-                    get: { model.completionReplyEnabled },
-                    set: { model.completionReplyEnabled = $0 }
-                ))
-                Toggle(lang.t("settings.general.suppressFrontmostNotifications"), isOn: Binding(
-                    get: { model.suppressFrontmostNotifications },
-                    set: { model.suppressFrontmostNotifications = $0 }
                 ))
             }
 
@@ -415,18 +386,11 @@ struct SetupSettingsPane: View {
     @State private var confirmingUninstallFactory = false
     @State private var confirmingUninstallCodebuddy = false
     @State private var confirmingUninstallCursor = false
-    @State private var confirmingUninstallGemini = false
-    @State private var confirmingUninstallKimi = false
-    @State private var confirmingUninstallClaudeUsage = false
 
     private var lang: LanguageManager { model.lang }
 
     var body: some View {
         Form {
-            if !model.hasAnyInstalledAgent {
-                emptyStateBanner
-            }
-
             claudeConfigDirectorySection
 
             Section(lang.t("setup.section.hooks")) {
@@ -434,7 +398,6 @@ struct SetupSettingsPane: View {
                     name: "Claude Code",
                     installed: model.claudeHooksInstalled,
                     busy: model.isClaudeHookSetupBusy,
-                    configLocationURL: model.claudeHookStatus?.settingsURL,
                     installAction: { model.installClaudeHooks() },
                     uninstallAction: { confirmingUninstallClaude = true }
                 )
@@ -451,7 +414,6 @@ struct SetupSettingsPane: View {
                     name: "Codex",
                     installed: model.codexHooksInstalled,
                     busy: model.isCodexSetupBusy,
-                    configLocationURL: codexHookConfigURL,
                     installAction: { model.installCodexHooks() },
                     uninstallAction: { confirmingUninstallCodex = true }
                 )
@@ -469,7 +431,6 @@ struct SetupSettingsPane: View {
                     installed: model.openCodePluginInstalled,
                     busy: model.isOpenCodeSetupBusy,
                     requiresBinary: false,
-                    configLocationURL: model.openCodePluginStatus?.configURL,
                     installAction: { model.installOpenCodePlugin() },
                     uninstallAction: { confirmingUninstallOpenCode = true }
                 )
@@ -486,7 +447,6 @@ struct SetupSettingsPane: View {
                     name: "Qoder",
                     installed: model.qoderHooksInstalled,
                     busy: model.isQoderHookSetupBusy,
-                    configLocationURL: model.qoderHookStatus?.settingsURL,
                     installAction: { model.installQoderHooks() },
                     uninstallAction: { confirmingUninstallQoder = true }
                 )
@@ -503,7 +463,6 @@ struct SetupSettingsPane: View {
                     name: "Qwen Code",
                     installed: model.qwenCodeHooksInstalled,
                     busy: model.isQwenCodeHookSetupBusy,
-                    configLocationURL: model.qwenCodeHookStatus?.settingsURL,
                     installAction: { model.installQwenCodeHooks() },
                     uninstallAction: { confirmingUninstallQwenCode = true }
                 )
@@ -520,7 +479,6 @@ struct SetupSettingsPane: View {
                     name: "Factory",
                     installed: model.factoryHooksInstalled,
                     busy: model.isFactoryHookSetupBusy,
-                    configLocationURL: model.factoryHookStatus?.settingsURL,
                     installAction: { model.installFactoryHooks() },
                     uninstallAction: { confirmingUninstallFactory = true }
                 )
@@ -537,7 +495,6 @@ struct SetupSettingsPane: View {
                     name: "CodeBuddy",
                     installed: model.codebuddyHooksInstalled,
                     busy: model.isCodebuddyHookSetupBusy,
-                    configLocationURL: model.codebuddyHookStatus?.settingsURL,
                     installAction: { model.installCodebuddyHooks() },
                     uninstallAction: { confirmingUninstallCodebuddy = true }
                 )
@@ -555,7 +512,6 @@ struct SetupSettingsPane: View {
                     installed: model.cursorHooksInstalled,
                     busy: model.isCursorHookSetupBusy,
                     requiresBinary: true,
-                    configLocationURL: model.cursorHookStatus?.hooksURL,
                     installAction: { model.installCursorHooks() },
                     uninstallAction: { confirmingUninstallCursor = true }
                 )
@@ -566,40 +522,6 @@ struct SetupSettingsPane: View {
                     Button(lang.t("settings.general.cancel"), role: .cancel) {}
                 } message: {
                     Text("This will remove the Open Island hooks from ~/.cursor/hooks.json.")
-                }
-
-                hookRow(
-                    name: "Gemini CLI",
-                    installed: model.geminiHooksInstalled,
-                    busy: model.isGeminiHookSetupBusy,
-                    configLocationURL: geminiHookConfigURL,
-                    installAction: { model.installGeminiHooks() },
-                    uninstallAction: { confirmingUninstallGemini = true }
-                )
-                .alert(lang.t("settings.general.uninstallConfirmTitle"), isPresented: $confirmingUninstallGemini) {
-                    Button(lang.t("settings.general.uninstallConfirmAction"), role: .destructive) {
-                        model.uninstallGeminiHooks()
-                    }
-                    Button(lang.t("settings.general.cancel"), role: .cancel) {}
-                } message: {
-                    Text("This will remove Open Island hooks from ~/.gemini/settings.json.")
-                }
-
-                hookRow(
-                    name: "Kimi CLI",
-                    installed: model.kimiHooksInstalled,
-                    busy: model.isKimiHookSetupBusy,
-                    configLocationURL: model.kimiHookStatus?.configURL,
-                    installAction: { model.installKimiHooks() },
-                    uninstallAction: { confirmingUninstallKimi = true }
-                )
-                .alert(lang.t("settings.general.uninstallConfirmTitle"), isPresented: $confirmingUninstallKimi) {
-                    Button(lang.t("settings.general.uninstallConfirmAction"), role: .destructive) {
-                        model.uninstallKimiHooks()
-                    }
-                    Button(lang.t("settings.general.cancel"), role: .cancel) {}
-                } message: {
-                    Text("This will remove Open Island hooks from ~/.kimi/config.toml.")
                 }
             }
 
@@ -614,9 +536,6 @@ struct SetupSettingsPane: View {
                             Text(lang.t("setup.usageBridgeReady"))
                                 .foregroundStyle(.secondary)
                         }
-                        Button(lang.t("settings.general.uninstall")) {
-                            confirmingUninstallClaudeUsage = true
-                        }
                     } else if model.isClaudeUsageSetupBusy {
                         ProgressView().controlSize(.small)
                     } else {
@@ -625,19 +544,6 @@ struct SetupSettingsPane: View {
                         }
                     }
                 }
-                .alert(lang.t("settings.general.uninstallConfirmTitle"), isPresented: $confirmingUninstallClaudeUsage) {
-                    Button(lang.t("settings.general.uninstallConfirmAction"), role: .destructive) {
-                        model.uninstallClaudeUsageBridge()
-                    }
-                    Button(lang.t("settings.general.cancel"), role: .cancel) {}
-                } message: {
-                    Text(lang.t("settings.general.uninstallConfirmMessage.claudeUsage"))
-                }
-
-                Toggle(lang.t("settings.general.showCodexUsage"), isOn: Binding(
-                    get: { model.showCodexUsage },
-                    set: { model.showCodexUsage = $0 }
-                ))
             } header: {
                 HStack(spacing: 4) {
                     Text(lang.t("setup.section.usage"))
@@ -676,8 +582,6 @@ struct SetupSettingsPane: View {
                     if !model.factoryHooksInstalled { model.installFactoryHooks() }
                     if !model.codebuddyHooksInstalled { model.installCodebuddyHooks() }
                     if !model.cursorHooksInstalled { model.installCursorHooks() }
-                    if !model.geminiHooksInstalled { model.installGeminiHooks() }
-                    if !model.kimiHooksInstalled { model.installKimiHooks() }
                     if !model.claudeUsageInstalled { model.installClaudeUsageBridge() }
                 }
                 .disabled(model.hooksBinaryURL == nil || allReady)
@@ -716,7 +620,6 @@ struct SetupSettingsPane: View {
                     panel.canChooseDirectories = true
                     panel.canChooseFiles = false
                     panel.canCreateDirectories = true
-                    panel.showsHiddenFiles = true
                     panel.prompt = lang.t("setup.claudeConfigDir.choose")
                     if panel.runModal() == .OK, let url = panel.url {
                         model.updateClaudeConfigDirectory(to: url)
@@ -739,43 +642,7 @@ struct SetupSettingsPane: View {
     private var allReady: Bool {
         model.claudeHooksInstalled && model.codexHooksInstalled && model.openCodePluginInstalled
             && model.qoderHooksInstalled && model.qwenCodeHooksInstalled && model.factoryHooksInstalled && model.codebuddyHooksInstalled
-            && model.cursorHooksInstalled && model.geminiHooksInstalled && model.kimiHooksInstalled && model.claudeUsageInstalled
-    }
-
-    @ViewBuilder
-    private var emptyStateBanner: some View {
-        Section {
-            HStack(alignment: .top, spacing: 12) {
-                Image(systemName: "sparkles")
-                    .font(.system(size: 18, weight: .semibold))
-                    .foregroundStyle(.tint)
-                    .frame(width: 28)
-
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(lang.t("setup.banner.noHooks.title"))
-                        .font(.system(size: 13, weight: .semibold))
-                    Text(lang.t("setup.banner.noHooks.message"))
-                        .font(.system(size: 12))
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-
-                Spacer()
-            }
-            .padding(.vertical, 4)
-        }
-    }
-
-    private var codexHookConfigURL: URL? {
-        if let hooksURL = model.codexHookStatus?.hooksURL, FileManager.default.fileExists(atPath: hooksURL.path) {
-            return hooksURL
-        }
-        return model.codexHookStatus?.configURL ?? model.codexHookStatus?.hooksURL
-    }
-
-    private var geminiHookConfigURL: URL {
-        FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent(".gemini/settings.json")
+            && model.cursorHooksInstalled && model.claudeUsageInstalled
     }
 
     private var hasErrors: Bool {
@@ -902,7 +769,6 @@ struct SetupSettingsPane: View {
         installed: Bool,
         busy: Bool,
         requiresBinary: Bool = true,
-        configLocationURL: URL? = nil,
         installAction: @escaping () -> Void,
         uninstallAction: @escaping () -> Void
     ) -> some View {
@@ -911,16 +777,6 @@ struct SetupSettingsPane: View {
             Spacer()
             if installed {
                 HStack(spacing: 8) {
-                    if let configLocationURL {
-                        Button {
-                            revealInFinder(configLocationURL)
-                        } label: {
-                            Image(systemName: "arrow.up.forward.square")
-                                .foregroundStyle(.secondary)
-                        }
-                        .buttonStyle(.plain)
-                        .help(lang.t("setup.revealConfigLocation"))
-                    }
                     HStack(spacing: 4) {
                         Image(systemName: "checkmark.circle.fill")
                             .foregroundStyle(.green)
@@ -941,100 +797,6 @@ struct SetupSettingsPane: View {
                 }
                 .disabled(requiresBinary && model.hooksBinaryURL == nil)
             }
-        }
-    }
-
-    private func revealInFinder(_ url: URL) {
-        let fileManager = FileManager.default
-        let standardizedURL = url.standardizedFileURL
-
-        if fileManager.fileExists(atPath: standardizedURL.path) {
-            NSWorkspace.shared.activateFileViewerSelecting([standardizedURL])
-            return
-        }
-
-        let directoryURL = standardizedURL.deletingLastPathComponent()
-        if fileManager.fileExists(atPath: directoryURL.path) {
-            NSWorkspace.shared.open(directoryURL)
-        }
-    }
-}
-
-// MARK: - Watch
-
-struct WatchSettingsPane: View {
-    var model: AppModel
-
-    @State private var pairingCode: String = "----"
-
-    var body: some View {
-        Form {
-            Section {
-                Toggle("Watch Notifications", isOn: Binding(
-                    get: { model.watchNotificationEnabled },
-                    set: { model.watchNotificationEnabled = $0 }
-                ))
-
-                if model.watchNotificationEnabled {
-                    Text("When enabled, the macOS app broadcasts a Bonjour service that your iPhone can discover on the same WiFi network.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-            } header: {
-                Text("General")
-            }
-
-            if model.watchNotificationEnabled {
-                Section("Pairing") {
-                    HStack {
-                        Text("Pairing Code")
-                        Spacer()
-                        Text(pairingCode)
-                            .font(.system(size: 24, weight: .bold, design: .monospaced))
-                            .foregroundStyle(.blue)
-                    }
-
-                    Text("Enter this code on your iPhone app to pair. Code expires after 2 minutes.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-
-                    Button("Refresh Code") {
-                        model.watchRelay?.endpoint.regeneratePairingCode()
-                        pairingCode = model.watchPairingCode
-                    }
-                }
-
-                Section("Paired Devices") {
-                    if model.watchConnectedDevices > 0 {
-                        HStack {
-                            Label("iPhone", systemImage: "iphone")
-                            Spacer()
-                            HStack(spacing: 4) {
-                                Circle()
-                                    .fill(.green)
-                                    .frame(width: 7, height: 7)
-                                Text("Connected")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                            }
-                        }
-                    } else {
-                        HStack {
-                            Label("No devices paired", systemImage: "iphone.slash")
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-
-                    Button("Revoke All Pairings", role: .destructive) {
-                        model.watchRelay?.endpoint.revokeAllTokens()
-                    }
-                }
-            }
-        }
-        .formStyle(.grouped)
-        .navigationTitle("Watch")
-        .onAppear {
-            pairingCode = model.watchPairingCode
         }
     }
 }

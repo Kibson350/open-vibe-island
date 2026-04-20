@@ -115,10 +115,6 @@ struct ControlCenterView: View {
 
                 ccForkHookCard(title: "CodeBuddy Hooks", installed: model.codebuddyHooksInstalled, status: model.codebuddyHookStatus, isBusy: model.isCodebuddyHookSetupBusy, install: model.installCodebuddyHooks, uninstall: model.uninstallCodebuddyHooks)
 
-                geminiHookCard
-
-                kimiHookCard
-
                 usageDebugCard(
                     title: "Claude Usage",
                     statusTitle: model.claudeUsageStatusTitle,
@@ -154,39 +150,37 @@ struct ControlCenterView: View {
                     }
                 }
 
-                if model.showCodexUsage {
-                    usageDebugCard(
-                        title: "Codex Usage",
-                        statusTitle: model.codexUsageStatusTitle,
-                        statusSummary: model.codexUsageStatusSummary,
-                        isActive: model.codexUsageSnapshot?.isEmpty == false,
-                        accentColor: model.codexUsageSnapshot?.isEmpty == false ? .mint : .blue
-                    ) {
-                        if let summary = model.codexUsageSummaryText {
-                            metadataRow(title: "usage", value: summary)
+                usageDebugCard(
+                    title: "Codex Usage",
+                    statusTitle: model.codexUsageStatusTitle,
+                    statusSummary: model.codexUsageStatusSummary,
+                    isActive: model.codexUsageSnapshot?.isEmpty == false,
+                    accentColor: model.codexUsageSnapshot?.isEmpty == false ? .mint : .blue
+                ) {
+                    if let summary = model.codexUsageSummaryText {
+                        metadataRow(title: "usage", value: summary)
+                    }
+
+                    if let snapshot = model.codexUsageSnapshot {
+                        metadataRow(title: "latest rollout", value: snapshot.sourceFilePath)
+
+                        if let planType = snapshot.planType {
+                            metadataRow(title: "plan", value: planType)
                         }
 
-                        if let snapshot = model.codexUsageSnapshot {
-                            metadataRow(title: "latest rollout", value: snapshot.sourceFilePath)
-
-                            if let planType = snapshot.planType {
-                                metadataRow(title: "plan", value: planType)
-                            }
-
-                            if let capturedAt = snapshot.capturedAt {
-                                metadataRow(
-                                    title: "captured",
-                                    value: capturedAt.formatted(date: .abbreviated, time: .standard)
-                                )
-                            }
+                        if let capturedAt = snapshot.capturedAt {
+                            metadataRow(
+                                title: "captured",
+                                value: capturedAt.formatted(date: .abbreviated, time: .standard)
+                            )
                         }
-                    } actions: {
-                        HStack(spacing: 10) {
-                            Button(lang.t("debug.refresh")) {
-                                model.refreshCodexUsageState()
-                            }
-                            .buttonStyle(DebugActionButtonStyle(kind: .secondary))
+                    }
+                } actions: {
+                    HStack(spacing: 10) {
+                        Button(lang.t("debug.refresh")) {
+                            model.refreshCodexUsageState()
                         }
+                        .buttonStyle(DebugActionButtonStyle(kind: .secondary))
                     }
                 }
 
@@ -253,64 +247,6 @@ struct ControlCenterView: View {
             RoundedRectangle(cornerRadius: 18, style: .continuous)
                 .strokeBorder(selectedScenario == scenario ? .white.opacity(0.18) : .white.opacity(0.05))
         )
-    }
-
-    private var geminiHookCard: some View {
-        usageDebugCard(
-            title: "Gemini Hooks",
-            statusTitle: model.geminiHookStatusTitle,
-            statusSummary: model.geminiHookStatusSummary,
-            isActive: model.geminiHooksInstalled,
-            accentColor: model.geminiHooksInstalled ? .mint : .blue
-        ) {
-            EmptyView()
-        } actions: {
-            HStack(spacing: 10) {
-                Button(lang.t("debug.refresh")) {
-                    model.refreshGeminiHookStatus()
-                }
-                .buttonStyle(DebugActionButtonStyle(kind: .secondary))
-
-                Button(model.geminiHooksInstalled ? lang.t("debug.removeHooks") : lang.t("debug.installHooks")) {
-                    if model.geminiHooksInstalled {
-                        model.uninstallGeminiHooks()
-                    } else {
-                        model.installGeminiHooks()
-                    }
-                }
-                .buttonStyle(DebugActionButtonStyle(kind: .primary))
-                .disabled(model.isGeminiHookSetupBusy || model.hooksBinaryURL == nil)
-            }
-        }
-    }
-
-    private var kimiHookCard: some View {
-        usageDebugCard(
-            title: "Kimi Hooks",
-            statusTitle: model.kimiHookStatusTitle,
-            statusSummary: model.kimiHookStatusSummary,
-            isActive: model.kimiHooksInstalled,
-            accentColor: model.kimiHooksInstalled ? .mint : .blue
-        ) {
-            EmptyView()
-        } actions: {
-            HStack(spacing: 10) {
-                Button(lang.t("debug.refresh")) {
-                    model.refreshKimiHookStatus()
-                }
-                .buttonStyle(DebugActionButtonStyle(kind: .secondary))
-
-                Button(model.kimiHooksInstalled ? lang.t("debug.removeHooks") : lang.t("debug.installHooks")) {
-                    if model.kimiHooksInstalled {
-                        model.uninstallKimiHooks()
-                    } else {
-                        model.installKimiHooks()
-                    }
-                }
-                .buttonStyle(DebugActionButtonStyle(kind: .primary))
-                .disabled(model.isKimiHookSetupBusy || model.hooksBinaryURL == nil)
-            }
-        }
     }
 
     private var actionCard: some View {

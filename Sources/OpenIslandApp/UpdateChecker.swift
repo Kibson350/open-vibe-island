@@ -17,13 +17,17 @@ final class UpdateChecker: NSObject {
     private(set) var latestVersion: String?
 
     @ObservationIgnored
-    private var updaterController: SPUStandardUpdaterController!
+    private var updaterController: SPUStandardUpdaterController?
 
     @ObservationIgnored
     private var cancellable: AnyCancellable?
 
     override init() {
         super.init()
+        // Sparkle requires a valid CFBundleIdentifier. Skip initialisation
+        // entirely in Xcode debug builds (no bundle ID) to avoid the cascade
+        // of "has no CFBundleIdentifier" / "has no CFBundleVersion" errors.
+        guard Bundle.main.bundleIdentifier != nil else { return }
         updaterController = SPUStandardUpdaterController(
             startingUpdater: false,
             updaterDelegate: self,
@@ -34,15 +38,7 @@ final class UpdateChecker: NSObject {
     /// Start Sparkle's automatic update checking schedule.
     /// Call once after app launch.
     func startIfNeeded() {
-        #if DEBUG
-        // Dev builds run from a local branch that often carries fixes not yet in
-        // the upstream appcast. Letting Sparkle prompt the user to "update" to
-        // 1.0.21 would overwrite the bundle and silently discard those fixes.
-        // Skip the auto-check entirely in debug — release bundles still update.
-        print("[UpdateChecker] skipped in DEBUG build")
-        return
-        #else
-        let updater = updaterController.updater
+        guard let updater = updaterController?.updater else { return }
         updater.automaticallyChecksForUpdates = true
         updater.updateCheckInterval = 60 * 60 // 1 hour
         updater.automaticallyDownloadsUpdates = false
@@ -58,12 +54,11 @@ final class UpdateChecker: NSObject {
             .sink { [weak self] value in
                 self?.canCheckForUpdates = value
             }
-        #endif
     }
 
     /// Manually trigger an update check (from Settings UI).
     func checkForUpdates() {
-        updaterController.checkForUpdates(nil)
+        updaterController?.checkForUpdates(nil)
     }
 }
 

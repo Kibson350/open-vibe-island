@@ -5,13 +5,6 @@ import OpenIslandCore
 @MainActor
 @Observable
 final class HookInstallationCoordinator {
-    @ObservationIgnored
-    let intentStore: AgentIntentStore
-
-    init(intentStore: AgentIntentStore = AgentIntentStore()) {
-        self.intentStore = intentStore
-    }
-
     var codexHookStatus: CodexHookInstallationStatus?
     var claudeHookStatus: ClaudeHookInstallationStatus?
     var qoderHookStatus: ClaudeHookInstallationStatus?
@@ -20,8 +13,6 @@ final class HookInstallationCoordinator {
     var codebuddyHookStatus: ClaudeHookInstallationStatus?
     var openCodePluginStatus: OpenCodePluginInstallationStatus?
     var cursorHookStatus: CursorHookInstallationStatus?
-    var geminiHookStatus: GeminiHookInstallationStatus?
-    var kimiHookStatus: KimiHookInstallationStatus?
     var claudeStatusLineStatus: ClaudeStatusLineInstallationStatus?
     var claudeUsageSnapshot: ClaudeUsageSnapshot?
     var codexUsageSnapshot: CodexUsageSnapshot?
@@ -34,8 +25,6 @@ final class HookInstallationCoordinator {
     var isCodebuddyHookSetupBusy = false
     var isOpenCodeSetupBusy = false
     var isCursorHookSetupBusy = false
-    var isGeminiHookSetupBusy = false
-    var isKimiHookSetupBusy = false
     var isClaudeUsageSetupBusy = false
 
     @ObservationIgnored
@@ -78,12 +67,6 @@ final class HookInstallationCoordinator {
 
     @ObservationIgnored
     private let cursorHookInstallationManager = CursorHookInstallationManager()
-
-    @ObservationIgnored
-    private let geminiHookInstallationManager = GeminiHookInstallationManager()
-
-    @ObservationIgnored
-    private let kimiHookInstallationManager = KimiHookInstallationManager()
 
     /// Computed so it always reflects the latest `ClaudeConfigDirectory` setting.
     private var claudeStatusLineInstallationManager: ClaudeStatusLineInstallationManager {
@@ -135,14 +118,6 @@ final class HookInstallationCoordinator {
 
     var cursorHooksInstalled: Bool {
         cursorHookStatus?.managedHooksPresent == true
-    }
-
-    var geminiHooksInstalled: Bool {
-        geminiHookStatus?.managedHooksPresent == true
-    }
-
-    var kimiHooksInstalled: Bool {
-        kimiHookStatus?.managedHooksPresent == true
     }
 
     var claudeUsageInstalled: Bool {
@@ -333,51 +308,6 @@ final class HookInstallationCoordinator {
         return "no managed Cursor hooks"
     }
 
-    var geminiHookStatusTitle: String {
-        guard let status = geminiHookStatus else { return "Gemini hooks loading" }
-        return status.managedHooksPresent ? "Gemini hooks installed" : "Gemini hooks not installed"
-    }
-
-    var geminiHookStatusSummary: String {
-        guard let status = geminiHookStatus else {
-            return "Reading ~/.gemini/settings.json."
-        }
-
-        if hooksBinaryURL == nil {
-            return "Build OpenIslandHooks before installing."
-        }
-
-        return status.managedHooksPresent ? "managed hooks present" : "no managed Gemini hooks"
-    }
-
-    var kimiHookStatusTitle: String {
-        if kimiHooksInstalled {
-            return "Kimi hooks installed"
-        }
-
-        if hooksBinaryURL == nil {
-            return "Hook binary not found"
-        }
-
-        return "Kimi hooks not installed"
-    }
-
-    var kimiHookStatusSummary: String {
-        guard kimiHookStatus != nil else {
-            return "Reading ~/.kimi/config.toml."
-        }
-
-        if kimiHooksInstalled {
-            return "managed hooks present"
-        }
-
-        if hooksBinaryURL == nil {
-            return "Build OpenIslandHooks before installing."
-        }
-
-        return "no managed Kimi hooks"
-    }
-
     var codexHookStatusTitle: String {
         if codexHooksInstalled {
             return "Codex hooks installed"
@@ -459,35 +389,28 @@ final class HookInstallationCoordinator {
 
     // MARK: - Health check & auto-repair
 
-    var codexHealthReport: HookHealthReport?
     var claudeHealthReport: HookHealthReport?
-    var openCodeHealthReport: HookHealthReport?
-    var cursorHealthReport: HookHealthReport?
-    var geminiHealthReport: HookHealthReport?
+    var codexHealthReport: HookHealthReport?
 
-
-    /// Runs health checks for Claude, Codex and OpenCode hooks.
+    /// Runs health checks for both Claude and Codex hooks.
     func runHealthChecks() {
         Task { @MainActor [weak self] in
             guard let self else { return }
 
             let binaryURL = self.hooksBinaryURL
-            let (claudeReport, codexReport, openCodeReport) = await Task.detached(priority: .utility) {
+            let (claudeReport, codexReport) = await Task.detached(priority: .utility) {
                 let claude = HookHealthCheck.checkClaude(hooksBinaryURL: binaryURL)
                 let codex = HookHealthCheck.checkCodex(hooksBinaryURL: binaryURL)
-                let openCode = HookHealthCheck.checkOpenCode()
-                return (claude, codex, openCode)
+                return (claude, codex)
             }.value
 
             self.claudeHealthReport = claudeReport
             self.codexHealthReport = codexReport
-            self.openCodeHealthReport = openCodeReport
 
-            if !claudeReport.isHealthy || !codexReport.isHealthy || !openCodeReport.isHealthy {
-                let claudeIssueCount = claudeReport.errors.count
-                let codexIssueCount = codexReport.errors.count
-                let openCodeIssueCount = openCodeReport.errors.count
-                self.onStatusMessage?("Hook health check: \(claudeIssueCount) Claude, \(codexIssueCount) Codex, \(openCodeIssueCount) OpenCode issue(s).")
+            if !claudeReport.isHealthy || !codexReport.isHealthy {
+                let claudeIssueCount = claudeReport.issues.count
+                let codexIssueCount = codexReport.issues.count
+                self.onStatusMessage?("Hook health check: \(claudeIssueCount) Claude issue(s), \(codexIssueCount) Codex issue(s).")
             }
         }
     }
@@ -500,16 +423,14 @@ final class HookInstallationCoordinator {
 
         // Re-run health checks first
         let binaryURL = hooksBinaryURL
-        let (claudeReport, codexReport, openCodeReport) = await Task.detached(priority: .utility) {
+        let (claudeReport, codexReport) = await Task.detached(priority: .utility) {
             let claude = HookHealthCheck.checkClaude(hooksBinaryURL: binaryURL)
             let codex = HookHealthCheck.checkCodex(hooksBinaryURL: binaryURL)
-            let openCode = HookHealthCheck.checkOpenCode()
-            return (claude, codex, openCode)
+            return (claude, codex)
         }.value
 
         claudeHealthReport = claudeReport
         codexHealthReport = codexReport
-        openCodeHealthReport = openCodeReport
 
         // Repair Claude hooks if there are repairable issues
         if !claudeReport.repairableIssues.isEmpty, hooksBinaryURL != nil {
@@ -525,31 +446,22 @@ final class HookInstallationCoordinator {
             repaired = true
         }
 
-        // Repair OpenCode plugin if there are repairable issues
-        if !openCodeReport.repairableIssues.isEmpty {
-            onStatusMessage?("Repairing OpenCode plugin: \(openCodeReport.repairableIssues.map(\.description).joined(separator: "; "))")
-            installOpenCodePlugin()
-            repaired = true
-        }
-
         // Refresh health reports after repair
         if repaired {
             try? await Task.sleep(for: .milliseconds(500))
-            let (updatedClaude, updatedCodex, updatedOpenCode) = await Task.detached(priority: .utility) {
+            let (updatedClaude, updatedCodex) = await Task.detached(priority: .utility) {
                 let claude = HookHealthCheck.checkClaude(hooksBinaryURL: binaryURL)
                 let codex = HookHealthCheck.checkCodex(hooksBinaryURL: binaryURL)
-                let openCode = HookHealthCheck.checkOpenCode()
-                return (claude, codex, openCode)
+                return (claude, codex)
             }.value
             claudeHealthReport = updatedClaude
             codexHealthReport = updatedCodex
-            openCodeHealthReport = updatedOpenCode
 
-            if updatedClaude.isHealthy && updatedCodex.isHealthy && updatedOpenCode.isHealthy {
+            if updatedClaude.isHealthy && updatedCodex.isHealthy {
                 onStatusMessage?("Hook repair completed successfully.")
             } else {
-                let remaining = updatedClaude.errors.count + updatedCodex.errors.count + updatedOpenCode.errors.count
-                onStatusMessage?("Hook repair finished with \(remaining) remaining issue(s).")
+                let remaining = updatedClaude.errors.count + updatedCodex.errors.count
+                onStatusMessage?("Hook repair completed with \(remaining) remaining issue(s) that need manual attention.")
             }
         }
 
@@ -669,26 +581,6 @@ final class HookInstallationCoordinator {
                     }
                 }
             }
-
-            group.addTask { @MainActor [weak self] in
-                guard let self else { return }
-                do {
-                    let status = try self.geminiHookInstallationManager.status(hooksBinaryURL: self.hooksBinaryURL)
-                    self.geminiHookStatus = status
-                } catch {
-                    self.onStatusMessage?("Failed to read Gemini hook status: \(error.localizedDescription)")
-                }
-            }
-
-            group.addTask { @MainActor [weak self] in
-                guard let self else { return }
-                do {
-                    let status = try self.kimiHookInstallationManager.status(hooksBinaryURL: self.hooksBinaryURL)
-                    self.kimiHookStatus = status
-                } catch {
-                    self.onStatusMessage?("Failed to read Kimi hook status: \(error.localizedDescription)")
-                }
-            }
         }
     }
 
@@ -714,32 +606,6 @@ final class HookInstallationCoordinator {
                 self.cursorHookStatus = status
             } catch {
                 self.onStatusMessage?("Failed to read Cursor hook status: \(error.localizedDescription)")
-            }
-        }
-    }
-
-    func refreshGeminiHookStatus() {
-        Task { [weak self] in
-            guard let self else { return }
-
-            do {
-                let status = try self.geminiHookInstallationManager.status(hooksBinaryURL: self.hooksBinaryURL)
-                self.geminiHookStatus = status
-            } catch {
-                self.onStatusMessage?("Failed to read Gemini hook status: \(error.localizedDescription)")
-            }
-        }
-    }
-
-    func refreshKimiHookStatus() {
-        Task { [weak self] in
-            guard let self else { return }
-
-            do {
-                let status = try self.kimiHookInstallationManager.status(hooksBinaryURL: self.hooksBinaryURL)
-                self.kimiHookStatus = status
-            } catch {
-                self.onStatusMessage?("Failed to read Kimi hook status: \(error.localizedDescription)")
             }
         }
     }
@@ -786,63 +652,6 @@ final class HookInstallationCoordinator {
         }
     }
 
-    // MARK: - Intent-aware helpers
-
-    /// Reports whether the startup flow should auto-install hooks for the
-    /// given agent.
-    ///
-    /// Post-onboarding, the only case that triggers auto-install is
-    /// `.installed && !present` — i.e. the user asked for this hook in the
-    /// past but it is currently missing (fresh machine, config wiped,
-    /// upgraded binary path, etc). This is a repair, not a surprise
-    /// install. `.untouched` and `.uninstalled` both return false;
-    /// untouched agents are surfaced to the user via the first-run
-    /// onboarding window and the empty-state banner instead.
-    func shouldAutoInstall(_ agent: AgentIdentifier) -> Bool {
-        guard intentStore.intent(for: agent) == .installed else {
-            return false
-        }
-
-        switch agent {
-        case .claudeCode: return !claudeHooksInstalled
-        case .codex: return !codexHooksInstalled
-        case .cursor: return !cursorHooksInstalled
-        case .qoder: return !qoderHooksInstalled
-        case .qwenCode: return !qwenCodeHooksInstalled
-        case .factory: return !factoryHooksInstalled
-        case .codebuddy: return !codebuddyHooksInstalled
-        case .openCode: return !openCodePluginInstalled
-        case .gemini: return !geminiHooksInstalled
-        case .kimi: return !kimiHooksInstalled
-        case .claudeUsageBridge: return !claudeUsageInstalled
-        }
-    }
-
-    // MARK: - Intent store migration
-
-    /// Reconciles the persisted intent store with the hook status currently
-    /// observed on disk. Must be called only after
-    /// `refreshAllHookStatusAndWait()` has returned, otherwise every agent
-    /// will be recorded as `.untouched` and legacy users will have their
-    /// installed hooks silently forgotten.
-    func migrateIntentStoreIfNeeded() {
-        intentStore.migrateFromLegacyStateIfNeeded { [self] agent in
-            switch agent {
-            case .claudeCode: return claudeHooksInstalled
-            case .codex: return codexHooksInstalled
-            case .cursor: return cursorHooksInstalled
-            case .qoder: return qoderHooksInstalled
-            case .qwenCode: return qwenCodeHooksInstalled
-            case .factory: return factoryHooksInstalled
-            case .codebuddy: return codebuddyHooksInstalled
-            case .openCode: return openCodePluginInstalled
-            case .gemini: return geminiHooksInstalled
-            case .kimi: return kimiHooksInstalled
-            case .claudeUsageBridge: return claudeUsageInstalled
-            }
-        }
-    }
-
     // MARK: - Install / uninstall
 
     func installCodexHooks() {
@@ -851,13 +660,13 @@ final class HookInstallationCoordinator {
             return
         }
 
-        updateCodexHooks(userMessage: "Installing Codex hooks.", intent: .installed) { manager in
+        updateCodexHooks(userMessage: "Installing Codex hooks.") { manager in
             try manager.install(hooksBinaryURL: hooksBinaryURL)
         }
     }
 
     func uninstallCodexHooks() {
-        updateCodexHooks(userMessage: "Removing Codex hooks.", intent: .uninstalled) { manager in
+        updateCodexHooks(userMessage: "Removing Codex hooks.") { manager in
             try manager.uninstall()
         }
     }
@@ -868,53 +677,52 @@ final class HookInstallationCoordinator {
             return
         }
 
-        updateClaudeHooks(userMessage: "Installing Claude hooks.", intent: .installed) { manager in
+        updateClaudeHooks(userMessage: "Installing Claude hooks.") { manager in
             try manager.install(hooksBinaryURL: hooksBinaryURL)
         }
     }
 
     func uninstallClaudeHooks() {
-        updateClaudeHooks(userMessage: "Removing Claude hooks.", intent: .uninstalled) { manager in
+        updateClaudeHooks(userMessage: "Removing Claude hooks.") { manager in
             try manager.uninstall()
         }
     }
 
     func installQoderHooks() {
-        updateCCForkHooks(manager: qoderHookInstallationManager, name: "Qoder", agent: .qoder, isBusySetter: { [weak self] in self?.isQoderHookSetupBusy = $0 }, statusSetter: { [weak self] in self?.qoderHookStatus = $0 }, install: true)
+        updateCCForkHooks(manager: qoderHookInstallationManager, name: "Qoder", isBusySetter: { [weak self] in self?.isQoderHookSetupBusy = $0 }, statusSetter: { [weak self] in self?.qoderHookStatus = $0 }, install: true)
     }
 
     func uninstallQoderHooks() {
-        updateCCForkHooks(manager: qoderHookInstallationManager, name: "Qoder", agent: .qoder, isBusySetter: { [weak self] in self?.isQoderHookSetupBusy = $0 }, statusSetter: { [weak self] in self?.qoderHookStatus = $0 }, install: false)
+        updateCCForkHooks(manager: qoderHookInstallationManager, name: "Qoder", isBusySetter: { [weak self] in self?.isQoderHookSetupBusy = $0 }, statusSetter: { [weak self] in self?.qoderHookStatus = $0 }, install: false)
     }
 
     func installQwenCodeHooks() {
-        updateCCForkHooks(manager: qwenCodeHookInstallationManager, name: "Qwen Code", agent: .qwenCode, isBusySetter: { [weak self] in self?.isQwenCodeHookSetupBusy = $0 }, statusSetter: { [weak self] in self?.qwenCodeHookStatus = $0 }, install: true)
+        updateCCForkHooks(manager: qwenCodeHookInstallationManager, name: "Qwen Code", isBusySetter: { [weak self] in self?.isQwenCodeHookSetupBusy = $0 }, statusSetter: { [weak self] in self?.qwenCodeHookStatus = $0 }, install: true)
     }
 
     func uninstallQwenCodeHooks() {
-        updateCCForkHooks(manager: qwenCodeHookInstallationManager, name: "Qwen Code", agent: .qwenCode, isBusySetter: { [weak self] in self?.isQwenCodeHookSetupBusy = $0 }, statusSetter: { [weak self] in self?.qwenCodeHookStatus = $0 }, install: false)
+        updateCCForkHooks(manager: qwenCodeHookInstallationManager, name: "Qwen Code", isBusySetter: { [weak self] in self?.isQwenCodeHookSetupBusy = $0 }, statusSetter: { [weak self] in self?.qwenCodeHookStatus = $0 }, install: false)
     }
 
     func installFactoryHooks() {
-        updateCCForkHooks(manager: factoryHookInstallationManager, name: "Factory", agent: .factory, isBusySetter: { [weak self] in self?.isFactoryHookSetupBusy = $0 }, statusSetter: { [weak self] in self?.factoryHookStatus = $0 }, install: true)
+        updateCCForkHooks(manager: factoryHookInstallationManager, name: "Factory", isBusySetter: { [weak self] in self?.isFactoryHookSetupBusy = $0 }, statusSetter: { [weak self] in self?.factoryHookStatus = $0 }, install: true)
     }
 
     func uninstallFactoryHooks() {
-        updateCCForkHooks(manager: factoryHookInstallationManager, name: "Factory", agent: .factory, isBusySetter: { [weak self] in self?.isFactoryHookSetupBusy = $0 }, statusSetter: { [weak self] in self?.factoryHookStatus = $0 }, install: false)
+        updateCCForkHooks(manager: factoryHookInstallationManager, name: "Factory", isBusySetter: { [weak self] in self?.isFactoryHookSetupBusy = $0 }, statusSetter: { [weak self] in self?.factoryHookStatus = $0 }, install: false)
     }
 
     func installCodebuddyHooks() {
-        updateCCForkHooks(manager: codebuddyHookInstallationManager, name: "CodeBuddy", agent: .codebuddy, isBusySetter: { [weak self] in self?.isCodebuddyHookSetupBusy = $0 }, statusSetter: { [weak self] in self?.codebuddyHookStatus = $0 }, install: true)
+        updateCCForkHooks(manager: codebuddyHookInstallationManager, name: "CodeBuddy", isBusySetter: { [weak self] in self?.isCodebuddyHookSetupBusy = $0 }, statusSetter: { [weak self] in self?.codebuddyHookStatus = $0 }, install: true)
     }
 
     func uninstallCodebuddyHooks() {
-        updateCCForkHooks(manager: codebuddyHookInstallationManager, name: "CodeBuddy", agent: .codebuddy, isBusySetter: { [weak self] in self?.isCodebuddyHookSetupBusy = $0 }, statusSetter: { [weak self] in self?.codebuddyHookStatus = $0 }, install: false)
+        updateCCForkHooks(manager: codebuddyHookInstallationManager, name: "CodeBuddy", isBusySetter: { [weak self] in self?.isCodebuddyHookSetupBusy = $0 }, statusSetter: { [weak self] in self?.codebuddyHookStatus = $0 }, install: false)
     }
 
     private func updateCCForkHooks(
         manager: ClaudeHookInstallationManager,
         name: String,
-        agent: AgentIdentifier,
         isBusySetter: @MainActor @escaping (Bool) -> Void,
         statusSetter: @MainActor @escaping (ClaudeHookInstallationStatus) -> Void,
         install: Bool
@@ -937,7 +745,6 @@ final class HookInstallationCoordinator {
                     ? try manager.install(hooksBinaryURL: hooksBinaryURL)
                     : try manager.uninstall()
                 statusSetter(status)
-                self.intentStore.setIntent(install ? .installed : .uninstalled, for: agent)
                 if status.managedHooksPresent {
                     self.onStatusMessage?("\(name) hooks are installed and ready.")
                 } else {
@@ -966,7 +773,6 @@ final class HookInstallationCoordinator {
             do {
                 let status = try self.openCodePluginInstallationManager.install(pluginSourceData: pluginData)
                 self.openCodePluginStatus = status
-                self.intentStore.setIntent(.installed, for: .openCode)
                 if status.isInstalled {
                     self.onStatusMessage?("OpenCode plugin is installed. Restart OpenCode to activate.")
                 } else {
@@ -990,7 +796,6 @@ final class HookInstallationCoordinator {
             do {
                 let status = try self.openCodePluginInstallationManager.uninstall()
                 self.openCodePluginStatus = status
-                self.intentStore.setIntent(.uninstalled, for: .openCode)
                 self.onStatusMessage?("OpenCode plugin removed.")
             } catch {
                 self.onStatusMessage?("OpenCode plugin removal failed: \(error.localizedDescription)")
@@ -1004,65 +809,25 @@ final class HookInstallationCoordinator {
             return
         }
 
-        updateCursorHooks(userMessage: "Installing Cursor hooks.", intent: .installed) { manager in
+        updateCursorHooks(userMessage: "Installing Cursor hooks.") { manager in
             try manager.install(hooksBinaryURL: hooksBinaryURL)
         }
     }
 
     func uninstallCursorHooks() {
-        updateCursorHooks(userMessage: "Removing Cursor hooks.", intent: .uninstalled) { manager in
-            try manager.uninstall()
-        }
-    }
-
-    func installGeminiHooks() {
-        guard let hooksBinaryURL else {
-            onStatusMessage?("Could not find a local OpenIslandHooks binary. Build the package first.")
-            return
-        }
-
-        updateGeminiHooks(userMessage: "Installing Gemini hooks.", intent: .installed) { manager in
-            try manager.install(hooksBinaryURL: hooksBinaryURL)
-        }
-    }
-
-    func uninstallGeminiHooks() {
-        updateGeminiHooks(userMessage: "Removing Gemini hooks.", intent: .uninstalled) { manager in
-            try manager.uninstall()
-        }
-    }
-
-    func installKimiHooks() {
-        guard let hooksBinaryURL else {
-            onStatusMessage?("Could not find a local OpenIslandHooks binary. Build the package first.")
-            return
-        }
-
-        updateKimiHooks(userMessage: "Installing Kimi hooks.", intent: .installed) { manager in
-            try manager.install(hooksBinaryURL: hooksBinaryURL)
-        }
-    }
-
-    func uninstallKimiHooks() {
-        updateKimiHooks(userMessage: "Removing Kimi hooks.", intent: .uninstalled) { manager in
+        updateCursorHooks(userMessage: "Removing Cursor hooks.") { manager in
             try manager.uninstall()
         }
     }
 
     func installClaudeUsageBridge() {
-        updateClaudeUsageBridge(userMessage: "Installing Claude usage bridge.", intent: .installed) { manager in
-            do {
-                return try manager.install()
-            } catch ClaudeStatusLineInstallationError.existingStatusLineConflict {
-                // User already has a custom statusLine (e.g. claude-hud). Install as a
-                // wrapper so their script keeps running and we still get rate_limits.
-                return try manager.installAsWrapper()
-            }
+        updateClaudeUsageBridge(userMessage: "Installing Claude usage bridge.") { manager in
+            try manager.install()
         }
     }
 
     func uninstallClaudeUsageBridge() {
-        updateClaudeUsageBridge(userMessage: "Removing Claude usage bridge.", intent: .uninstalled) { manager in
+        updateClaudeUsageBridge(userMessage: "Removing Claude usage bridge.") { manager in
             try manager.uninstall()
         }
     }
@@ -1121,7 +886,6 @@ final class HookInstallationCoordinator {
 
     private func updateCodexHooks(
         userMessage: String,
-        intent: AgentHookIntent,
         operation: @escaping (CodexHookInstallationManager) throws -> CodexHookInstallationStatus
     ) {
         isCodexSetupBusy = true
@@ -1135,7 +899,6 @@ final class HookInstallationCoordinator {
             do {
                 let status = try operation(self.codexHookInstallationManager)
                 self.codexHookStatus = status
-                self.intentStore.setIntent(intent, for: .codex)
                 if status.managedHooksPresent {
                     self.onStatusMessage?("Codex hooks are installed and ready.")
                 } else {
@@ -1149,7 +912,6 @@ final class HookInstallationCoordinator {
 
     private func updateClaudeHooks(
         userMessage: String,
-        intent: AgentHookIntent,
         operation: @escaping (ClaudeHookInstallationManager) throws -> ClaudeHookInstallationStatus
     ) {
         isClaudeHookSetupBusy = true
@@ -1163,7 +925,6 @@ final class HookInstallationCoordinator {
             do {
                 let status = try operation(self.claudeHookInstallationManager)
                 self.claudeHookStatus = status
-                self.intentStore.setIntent(intent, for: .claudeCode)
                 if status.managedHooksPresent {
                     self.onStatusMessage?(status.hasClaudeIslandHooks
                         ? "Claude hooks are installed. claude-island hooks are also still present."
@@ -1179,7 +940,6 @@ final class HookInstallationCoordinator {
 
     private func updateCursorHooks(
         userMessage: String,
-        intent: AgentHookIntent,
         operation: @escaping (CursorHookInstallationManager) throws -> CursorHookInstallationStatus
     ) {
         isCursorHookSetupBusy = true
@@ -1193,7 +953,6 @@ final class HookInstallationCoordinator {
             do {
                 let status = try operation(self.cursorHookInstallationManager)
                 self.cursorHookStatus = status
-                self.intentStore.setIntent(intent, for: .cursor)
                 if status.managedHooksPresent {
                     self.onStatusMessage?("Cursor hooks are installed and ready.")
                 } else {
@@ -1205,65 +964,8 @@ final class HookInstallationCoordinator {
         }
     }
 
-    private func updateGeminiHooks(
-        userMessage: String,
-        intent: AgentHookIntent,
-        operation: @escaping (GeminiHookInstallationManager) throws -> GeminiHookInstallationStatus
-    ) {
-        isGeminiHookSetupBusy = true
-        onStatusMessage?(userMessage)
-
-        Task { [weak self] in
-            guard let self else { return }
-
-            defer { self.isGeminiHookSetupBusy = false }
-
-            do {
-                let status = try operation(self.geminiHookInstallationManager)
-                self.geminiHookStatus = status
-                self.intentStore.setIntent(intent, for: .gemini)
-                if status.managedHooksPresent {
-                    self.onStatusMessage?("Gemini hooks are installed and ready.")
-                } else {
-                    self.onStatusMessage?("Gemini hooks are not installed.")
-                }
-            } catch {
-                self.onStatusMessage?("Gemini hook update failed: \(error.localizedDescription)")
-            }
-        }
-    }
-
-    private func updateKimiHooks(
-        userMessage: String,
-        intent: AgentHookIntent,
-        operation: @escaping (KimiHookInstallationManager) throws -> KimiHookInstallationStatus
-    ) {
-        isKimiHookSetupBusy = true
-        onStatusMessage?(userMessage)
-
-        Task { [weak self] in
-            guard let self else { return }
-
-            defer { self.isKimiHookSetupBusy = false }
-
-            do {
-                let status = try operation(self.kimiHookInstallationManager)
-                self.kimiHookStatus = status
-                self.intentStore.setIntent(intent, for: .kimi)
-                if status.managedHooksPresent {
-                    self.onStatusMessage?("Kimi hooks are installed and ready.")
-                } else {
-                    self.onStatusMessage?("Kimi hooks are not installed.")
-                }
-            } catch {
-                self.onStatusMessage?("Kimi hook update failed: \(error.localizedDescription)")
-            }
-        }
-    }
-
     private func updateClaudeUsageBridge(
         userMessage: String,
-        intent: AgentHookIntent,
         operation: @escaping (ClaudeStatusLineInstallationManager) throws -> ClaudeStatusLineInstallationStatus
     ) {
         isClaudeUsageSetupBusy = true
@@ -1278,13 +980,8 @@ final class HookInstallationCoordinator {
                 let status = try operation(self.claudeStatusLineInstallationManager)
                 self.claudeStatusLineStatus = status
                 self.claudeUsageSnapshot = try ClaudeUsageLoader.load()
-                self.intentStore.setIntent(intent, for: .claudeUsageBridge)
                 if status.managedStatusLineInstalled {
-                    if status.managedStatusLineIsWrapper {
-                        self.onStatusMessage?("Claude usage bridge installed in wrapper mode — your existing statusLine is preserved. Start a Claude Code turn to refresh cached rate limits.")
-                    } else {
-                        self.onStatusMessage?("Claude usage bridge is installed. Start a Claude Code turn to refresh cached rate limits.")
-                    }
+                    self.onStatusMessage?("Claude usage bridge is installed. Start a Claude Code turn to refresh cached rate limits.")
                 } else {
                     self.onStatusMessage?("Claude usage bridge is not installed.")
                 }

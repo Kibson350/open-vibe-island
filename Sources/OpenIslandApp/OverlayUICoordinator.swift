@@ -254,6 +254,12 @@ final class OverlayUICoordinator {
         }
 
         if notchOpenReason == .hover && !islandSurface.isNotificationCard {
+            // Keep the island open while any session needs the user's attention
+            // (approval or question card shown inline). Closing mid-interaction
+            // would dismiss the card before the user can respond.
+            if appModel?.state.sessions.contains(where: { $0.phase.requiresAttention }) == true {
+                return false
+            }
             return true
         }
 

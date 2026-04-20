@@ -15,17 +15,11 @@ final class OverlayPanelController {
     private static let maxSessionListHeight: CGFloat = 560
     private static let maxVisibleSessionRows: Int = 6
     private static let openedRowSpacing: CGFloat = 6
-    // Content padding top (8) + scroll padding (4) + outerBottomPadding (14) + header-content gap (12)
-    // + bottomInset (14, the VStack .padding(.bottom, bottomInset) that subtracts from usable height)
-    // = 52.  The extra 14 pt avoids the card bottom being clipped by the .clipped() modifier when
-    // the measured height is not yet available (first notification render).
-    private static let openedContentVerticalInsets: CGFloat = 52
+    // Content padding (8) + scroll padding (4) + view chrome: outerBottomPadding (14) + header-content gap (12)
+    private static let openedContentVerticalInsets: CGFloat = 38
     private static let openedEmptyStateHeight: CGFloat = 108
-    // Approval card: header row (~72) + actionableBody padding (16*2 + 14 bottom) + body content (~186)
-    // Bumped to 310 to ensure the estimated panel height is never smaller than the actual rendered card.
-    private static let approvalCardHeight: CGFloat = 310
-    private static let questionCardBaseHeight: CGFloat = 110
-    private static let questionCardMaxHeight: CGFloat = 420
+    private static let approvalCardHeight: CGFloat = 288
+    private static let questionCardHeight: CGFloat = 110
     // Completion card chrome breakdown (everything except the scrollable text):
     // openedContent vertical padding: 24, card container padding: 28,
     // card VStack spacing: 14, card header (title+prompt): ~50,
@@ -34,7 +28,6 @@ final class OverlayPanelController {
     private static let completionCardChromeHeight: CGFloat = 187
     private static let completionCardMinHeight: CGFloat = 210
     private static let completionCardMaxHeight: CGFloat = 400
-    private static let hiddenIdleEdgeHoverHitHeight: CGFloat = 8
 
     private var panel: NotchPanel?
     private var eventMonitors = NotchEventMonitors()
@@ -132,7 +125,7 @@ final class OverlayPanelController {
         panel.isMovable = false
         panel.hidesOnDeactivate = false
         panel.acceptsMouseMovedEvents = false
-        panel.collectionBehavior = [.fullScreenAuxiliary, .canJoinAllSpaces, .ignoresCycle]
+        panel.collectionBehavior = [.fullScreenAuxiliary, .stationary, .canJoinAllSpaces, .ignoresCycle]
         panel.titleVisibility = .hidden
         panel.titlebarAppearsTransparent = true
         panel.ignoresMouseEvents = true
@@ -282,36 +275,24 @@ final class OverlayPanelController {
         hoverCancelGrace?.cancel()
         hoverCancelGrace = nil
 
-        guard let model else { return }
-
-        if model.showsIdleEdgeWhenCollapsed {
-            performHoverOpen(model)
-            return
-        }
-
         guard hoverTimer == nil else { return }
 
         let item = DispatchWorkItem { [weak self] in
             guard let self, let model = self.model else { return }
-            self.performHoverOpen(model)
+            if model.notchStatus == .closed {
+                if model.hapticFeedbackEnabled {
+                    NSHapticFeedbackManager.defaultPerformer.perform(
+                        NSHapticFeedbackManager.FeedbackPattern.alignment,
+                        performanceTime: .now
+                    )
+                }
+                model.notchOpen(reason: .hover)
+            }
             self.hoverTimer = nil
         }
 
         hoverTimer = item
         DispatchQueue.main.asyncAfter(deadline: .now() + AppModel.hoverOpenDelay, execute: item)
-    }
-
-    private func performHoverOpen(_ model: AppModel) {
-        guard model.notchStatus == .closed else { return }
-
-        if model.hapticFeedbackEnabled {
-            NSHapticFeedbackManager.defaultPerformer.perform(
-                NSHapticFeedbackManager.FeedbackPattern.alignment,
-                performanceTime: .now
-            )
-        }
-
-        model.notchOpen(reason: .hover)
     }
 
     private func cancelHoverOpen() {
@@ -349,11 +330,11 @@ final class OverlayPanelController {
         guard let model else { return false }
 
         if let closedSurfaceRect = closedSurfaceRect(for: model) {
-            return Self.rectContainsIncludingEdges(closedSurfaceRect, point: screenPoint)
+            return closedSurfaceRect.contains(screenPoint)
         }
 
         let expandedNotch = notchRect.insetBy(dx: -20, dy: -10)
-        return Self.rectContainsIncludingEdges(expandedNotch, point: screenPoint)
+        return expandedNotch.contains(screenPoint)
     }
 
     func isPointInExpandedArea(_ screenPoint: NSPoint) -> Bool {
@@ -371,7 +352,7 @@ final class OverlayPanelController {
             return false
         }
 
-        return Self.rectContainsIncludingEdges(contentRect, point: screenPoint)
+        return contentRect.contains(screenPoint)
     }
 
     func openedPanelWidth(for screen: NSScreen?) -> CGFloat {
@@ -413,69 +394,12 @@ final class OverlayPanelController {
         )
     }
 
-    nonisolated static func hiddenIdleEdgeHoverRect(
-        notchRect: NSRect,
-        closedWidth: CGFloat,
-        hoverHitHeight: CGFloat
-    ) -> NSRect {
-        let cx = notchRect.midX
-        let effectiveHeight = min(notchRect.height, max(1, hoverHitHeight))
-        return NSRect(
-            x: cx - closedWidth / 2,
-            y: notchRect.maxY - effectiveHeight,
-            width: closedWidth,
-            height: effectiveHeight
-        )
-    }
-
-    nonisolated static func rectContainsIncludingEdges(_ rect: NSRect, point: NSPoint) -> Bool {
-        point.x >= rect.minX
-            && point.x <= rect.maxX
-            && point.y >= rect.minY
-            && point.y <= rect.maxY
-    }
-
-    nonisolated static func closedPanelWidth(
-        notchWidth: CGFloat,
-        notchHeight: CGFloat,
-        liveSessionCount: Int,
-        hasAttention: Bool,
-        notchStatus: NotchStatus,
-        showsIdleEdgeWhenCollapsed: Bool
-    ) -> CGFloat {
-        let popWidth = notchStatus == .popping ? 18 : 0
-
-        guard !showsIdleEdgeWhenCollapsed else {
-            return notchWidth + CGFloat(popWidth)
-        }
-
-        guard liveSessionCount > 0 else {
-            return notchWidth
-        }
-
-        let sideWidth = max(0, notchHeight - 12) + 10
-        let digits = max(1, "\(liveSessionCount)".count)
-        let countBadgeWidth = CGFloat(26 + max(0, digits - 1) * 8)
-        let leftWidth = sideWidth + 8 + (hasAttention ? 18 : 0)
-        let rightWidth = max(sideWidth, countBadgeWidth) + (hasAttention ? 18 : 0)
-        let expansionWidth = leftWidth + rightWidth + 16 + (hasAttention ? 6 : 0)
-        return notchWidth + expansionWidth + CGFloat(popWidth)
-    }
-
     private func closedSurfaceRect(for model: AppModel) -> NSRect? {
         guard let screen = resolveTargetScreen() else {
             return nil
         }
 
         let closedWidth = closedPanelWidth(for: model, on: screen)
-        if model.showsIdleEdgeWhenCollapsed {
-            return Self.hiddenIdleEdgeHoverRect(
-                notchRect: notchRect,
-                closedWidth: closedWidth,
-                hoverHitHeight: Self.hiddenIdleEdgeHoverHitHeight
-            )
-        }
-
         return Self.closedSurfaceRect(
             notchRect: notchRect,
             closedWidth: closedWidth
@@ -531,15 +455,21 @@ final class OverlayPanelController {
         let spotlightSession = model.surfacedSessions.first(where: { $0.phase.requiresAttention })
             ?? model.surfacedSessions.first(where: { $0.phase == .running })
             ?? model.surfacedSessions.first
+        let hasClosedPresence = model.liveSessionCount > 0
 
-        return Self.closedPanelWidth(
-            notchWidth: notchWidth,
-            notchHeight: notchHeight,
-            liveSessionCount: model.liveSessionCount,
-            hasAttention: spotlightSession?.phase.requiresAttention == true,
-            notchStatus: model.notchStatus,
-            showsIdleEdgeWhenCollapsed: model.showsIdleEdgeWhenCollapsed
-        )
+        guard hasClosedPresence else {
+            return notchWidth
+        }
+
+        let sideWidth = max(0, notchHeight - 12) + 10
+        let digits = max(1, "\(model.liveSessionCount)".count)
+        let countBadgeWidth = CGFloat(26 + max(0, digits - 1) * 8)
+        let hasAttention = spotlightSession?.phase.requiresAttention == true
+        let leftWidth = sideWidth + 8 + (hasAttention ? 18 : 0)
+        let rightWidth = max(sideWidth, countBadgeWidth)
+        let expansionWidth = leftWidth + rightWidth + 16 + (hasAttention ? 6 : 0)
+        let popWidth = model.notchStatus == .popping ? 18 : 0
+        return notchWidth + expansionWidth + CGFloat(popWidth)
     }
 
     private func openedContentHeight(for model: AppModel) -> CGFloat {
@@ -574,7 +504,12 @@ final class OverlayPanelController {
         }
 
         let rowHeights = visibleSessions.map { session -> CGFloat in
-            if session.id == actionableID {
+            // Include inline action body height when a session is the tracked
+            // actionable surface OR when it requires attention. The latter covers
+            // hover-opened mode where islandSurface has no sessionID but approval
+            // and question cards still render inline, making the actual content
+            // much taller than a bare row estimate.
+            if session.id == actionableID || session.phase.requiresAttention {
                 return session.estimatedIslandRowHeight(at: now)
                     + actionableBodyHeight(for: session, model: model)
             }
@@ -597,17 +532,17 @@ final class OverlayPanelController {
         case .waitingForAnswer:
             return questionCardHeight(for: session.questionPrompt) - 44
         case .completed:
-            return completionBodyHeight(for: session, model: model)
+            return completionBodyHeight(for: session)
         case .running:
             return 0
         }
     }
 
     /// Height of the inline completion expansion area (not the old full-card height).
-    private func completionBodyHeight(for session: AgentSession, model: AppModel) -> CGFloat {
+    private func completionBodyHeight(for session: AgentSession) -> CGFloat {
         let headerHeight: CGFloat = 44
 
-        let text = (session.completionAssistantMessageText ?? session.summary)
+        let text = (session.lastAssistantMessageText ?? session.summary)
             .trimmingCharacters(in: .whitespacesAndNewlines)
 
         guard !text.isEmpty else {
@@ -622,39 +557,11 @@ final class OverlayPanelController {
             attributes: [.font: font]
         )
         let markdownHeight = min(260, ceil(textSize.height) + 20)
-        // Reply input: divider (1) + input bar padding+content (~52)
-        let replyInputHeight: CGFloat = TerminalTextSender.canReply(to: session, enabled: model.completionReplyEnabled) ? 53 : 0
-        return headerHeight + 1 + markdownHeight + replyInputHeight
+        return headerHeight + 1 + markdownHeight
     }
 
-    /// Estimates the question card height based on prompt content (question count,
-    /// option count per question, and whether the prompt title is shown).
     private func questionCardHeight(for prompt: QuestionPrompt?) -> CGFloat {
-        guard let prompt, !prompt.questions.isEmpty else {
-            return Self.questionCardBaseHeight
-        }
-
-        // Card chrome: outer padding + submit button ≈ 90pt.
-        // When the prompt title is suppressed (single question whose title
-        // matches the question text), reduce chrome by ~20pt.
-        let titleSuppressed = prompt.questions.count == 1
-            && prompt.title == prompt.questions.first?.question
-        let chromeHeight: CGFloat = titleSuppressed ? 70 : 90
-        var contentHeight: CGFloat = 0
-
-        for question in prompt.questions {
-            if prompt.questions.count > 1 {
-                contentHeight += 16 // header
-            }
-            contentHeight += 20 // question text
-            contentHeight += CGFloat(question.options.count) * 30 // option rows
-        }
-
-        // Inter-question spacing (only between questions, not after the last).
-        contentHeight += CGFloat(max(0, prompt.questions.count - 1)) * 10
-
-        let estimated = chromeHeight + contentHeight
-        return min(Self.questionCardMaxHeight, max(Self.questionCardBaseHeight, estimated))
+        Self.questionCardHeight
     }
 
     private func completionCardHeight(for model: AppModel) -> CGFloat {
@@ -662,7 +569,7 @@ final class OverlayPanelController {
             return Self.completionCardMinHeight
         }
 
-        let text = (session.completionAssistantMessageText ?? session.summary)
+        let text = (session.lastAssistantMessageText ?? session.summary)
             .trimmingCharacters(in: .whitespacesAndNewlines)
 
         // Estimate text height using NSString measurement with the actual font.

@@ -362,17 +362,11 @@ public struct ClaudeHookPayload: Equatable, Codable, Sendable {
     public var terminalSessionID: String?
     public var terminalTTY: String?
     public var terminalTitle: String?
-    /// Warp-specific per-pane identifier discovered via Warp's SQLite state
-    /// at hook runtime. Not sent over the wire by the hook script — populated
-    /// in `withRuntimeContext` and serialized through the bridge.
-    public var warpPaneUUID: String?
     /// Set to `true` by the Python hook client to indicate a remote (SSH) session.
     public var remote: Bool?
 
-    /// The agent tool that produced this hook payload (e.g. "claude", "qoder", "factory", "codebuddy", "kimi").
-    /// Set by the hooks CLI from the `--source` argument; absent from the JSON emitted by agents
-    /// themselves but included on the Unix-socket wire so `BridgeServer.resolvedAgentTool` can
-    /// dispatch to the correct `AgentTool`.
+    /// The agent tool that produced this hook payload (e.g. "claude", "qoder", "factory", "codebuddy").
+    /// Set by the hooks CLI from the `--source` argument; not part of the JSON wire format.
     public var hookSource: String?
 
     private enum CodingKeys: String, CodingKey {
@@ -380,7 +374,6 @@ public struct ClaudeHookPayload: Equatable, Codable, Sendable {
         case hookEventName = "hook_event_name"
         case sessionID = "session_id"
         case transcriptPath = "transcript_path"
-        case hookSource = "hook_source"
         case permissionMode = "permission_mode"
         case agentID = "agent_id"
         case agentType = "agent_type"
@@ -405,7 +398,6 @@ public struct ClaudeHookPayload: Equatable, Codable, Sendable {
         case terminalSessionID = "terminal_session_id"
         case terminalTTY = "terminal_tty"
         case terminalTitle = "terminal_title"
-        case warpPaneUUID = "warp_pane_uuid"
         case remote
     }
 
@@ -438,7 +430,6 @@ public struct ClaudeHookPayload: Equatable, Codable, Sendable {
         terminalSessionID: String? = nil,
         terminalTTY: String? = nil,
         terminalTitle: String? = nil,
-        warpPaneUUID: String? = nil,
         remote: Bool? = nil
     ) {
         self.cwd = cwd
@@ -469,7 +460,6 @@ public struct ClaudeHookPayload: Equatable, Codable, Sendable {
         self.terminalSessionID = terminalSessionID
         self.terminalTTY = terminalTTY
         self.terminalTitle = terminalTitle
-        self.warpPaneUUID = warpPaneUUID
         self.remote = remote
     }
 }
@@ -691,8 +681,7 @@ public extension ClaudeHookPayload {
             paneTitle: terminalTitle ?? "Claude \(sessionID.prefix(8))",
             workingDirectory: cwd,
             terminalSessionID: terminalSessionID,
-            terminalTTY: terminalTTY,
-            warpPaneUUID: warpPaneUUID
+            terminalTTY: terminalTTY
         )
     }
 
@@ -714,45 +703,44 @@ public extension ClaudeHookPayload {
     }
 
     var implicitStartSummary: String {
-        let agent = resolvedAgentTool.displayName
         switch hookEventName {
         case .sessionStart:
             switch source {
             case .resume:
-                return "Resumed \(agent) session in \(workspaceName)."
+                return "Resumed Claude session in \(workspaceName)."
             case .clear:
-                return "Cleared \(agent) context in \(workspaceName)."
+                return "Cleared Claude context in \(workspaceName)."
             case .compact:
-                return "Compacted \(agent) context in \(workspaceName)."
+                return "Compacted Claude context in \(workspaceName)."
             case .startup, .none:
-                return "Started \(agent) session in \(workspaceName)."
+                return "Started Claude session in \(workspaceName)."
             }
         case .userPromptSubmit:
-            return "\(agent) received a new prompt in \(workspaceName)."
+            return "Claude received a new prompt in \(workspaceName)."
         case .preToolUse:
-            return "\(agent) is preparing \(toolName ?? "a tool") in \(workspaceName)."
+            return "Claude is preparing \(toolName ?? "a tool") in \(workspaceName)."
         case .postToolUse:
-            return "\(agent) finished \(toolName ?? "a tool") in \(workspaceName)."
+            return "Claude finished \(toolName ?? "a tool") in \(workspaceName)."
         case .postToolUseFailure:
-            return "\(agent) hit a tool error in \(workspaceName)."
+            return "Claude hit a tool error in \(workspaceName)."
         case .permissionRequest:
-            return "\(agent) needs approval in \(workspaceName)."
+            return "Claude needs approval in \(workspaceName)."
         case .permissionDenied:
-            return "\(agent) permission was denied in \(workspaceName)."
+            return "Claude permission was denied in \(workspaceName)."
         case .notification:
-            return "\(agent) sent a notification in \(workspaceName)."
+            return "Claude sent a notification in \(workspaceName)."
         case .stop:
-            return "\(agent) completed a turn in \(workspaceName)."
+            return "Claude completed a turn in \(workspaceName)."
         case .stopFailure:
-            return "\(agent) failed to finish a turn in \(workspaceName)."
+            return "Claude failed to finish a turn in \(workspaceName)."
         case .subagentStart:
-            return "\(agent) started a subagent in \(workspaceName)."
+            return "Claude started a subagent in \(workspaceName)."
         case .subagentStop:
-            return "\(agent) finished a subagent in \(workspaceName)."
+            return "Claude finished a subagent in \(workspaceName)."
         case .preCompact:
-            return "\(agent) is compacting the conversation in \(workspaceName)."
+            return "Claude is compacting the conversation in \(workspaceName)."
         case .sessionEnd:
-            return "\(agent) session ended in \(workspaceName)."
+            return "Claude session ended in \(workspaceName)."
         }
     }
 
@@ -871,8 +859,6 @@ public extension ClaudeHookPayload {
             return .factory
         case "codebuddy":
             return .codebuddy
-        case "kimi":
-            return .kimiCLI
         default:
             return .claudeCode
         }
@@ -904,13 +890,11 @@ public extension ClaudeHookPayload {
             return notificationPreview
         }
 
-        let agent = resolvedAgentTool.displayName
-
         if let toolName {
-            return "\(agent) wants to run \(toolName)."
+            return "Claude wants to run \(toolName)."
         }
 
-        return "\(agent) needs permission to continue."
+        return "Claude needs permission to continue."
     }
 
     var permissionAffectedPath: String {
@@ -929,44 +913,19 @@ public extension ClaudeHookPayload {
         withRuntimeContext(
             environment: environment,
             currentTTYProvider: { currentTTY() },
-            terminalLocatorProvider: { terminalLocator(for: $0) },
-            warpPaneResolver: Self.defaultWarpPaneResolver
+            terminalLocatorProvider: { terminalLocator(for: $0) }
         )
-    }
-
-    /// Default production resolver. Tries the PID-based lookup first
-    /// (unambiguous even for sibling tabs sharing a cwd) and falls back
-    /// to the cwd-based lookup when PID correlation is unavailable —
-    /// either because the hook is running outside a Warp pane (e.g.
-    /// invoked by tests) or because Warp's terminal-server child
-    /// enumeration is in a transient state.
-    static let defaultWarpPaneResolver: @Sendable (String) -> String? = { cwd in
-        let reader = WarpSQLiteReader()
-        if let context = WarpProcessResolver.resolveCurrentPaneContext(),
-           let uuid = reader.lookupPaneUUIDByShellPID(
-               context.shellPID,
-               terminalServerPID: context.terminalServerPID
-           ) {
-            return uuid
-        }
-        return reader.lookupPaneUUID(forCwd: cwd)
     }
 
     func withRuntimeContext(
         environment: [String: String],
         currentTTYProvider: () -> String?,
-        terminalLocatorProvider: (String) -> (sessionID: String?, tty: String?, title: String?),
-        warpPaneResolver: (String) -> String? = Self.defaultWarpPaneResolver
+        terminalLocatorProvider: (String) -> (sessionID: String?, tty: String?, title: String?)
     ) -> ClaudeHookPayload {
         var payload = self
 
         if payload.terminalApp == nil {
             payload.terminalApp = inferTerminalApp(from: environment)
-        }
-
-        // Resolve Warp pane UUID from the live SQLite state.
-        if payload.terminalApp == "Warp", payload.warpPaneUUID == nil {
-            payload.warpPaneUUID = warpPaneResolver(payload.cwd)
         }
 
         // For cmux, use CMUX_SURFACE_ID as the terminal session identifier.
@@ -1134,79 +1093,59 @@ public extension ClaudeHookPayload {
     }
 
     private func inferTerminalApp(from environment: [String: String]) -> String? {
-        // Multiplexers run inside a host terminal but expose their own pane
-        // context. Detect them first so the captured jumpTarget points at
-        // the multiplexer pane instead of the outer terminal.
+        if environment["ITERM_SESSION_ID"] != nil || environment["LC_TERMINAL"] == "iTerm2" {
+            return "iTerm"
+        }
+
         if environment["CMUX_WORKSPACE_ID"] != nil || environment["CMUX_SOCKET_PATH"] != nil {
             return "cmux"
         }
+
+        // Zellij runs inside another terminal; detect it before the parent
+        // terminal so we can capture pane context for jump-back.
         if environment["ZELLIJ"] != nil {
             return "Zellij"
         }
 
-        // TERM_PROGRAM is the only authoritative terminal signal. Each
-        // terminal sets it explicitly when it execs the user's shell, so
-        // unlike per-app env vars (GHOSTTY_RESOURCES_DIR,
-        // WARP_IS_LOCAL_SHELL_SESSION, ITERM_SESSION_ID, ...) it cannot
-        // leak across apps via macOS GUI app environment inheritance.
-        //
-        // Concrete leak this guards against: launching Warp via
-        // `open -a Warp` (or any other path) from a Ghostty tab causes
-        // Warp's main process — and every shell Warp later spawns — to
-        // inherit Ghostty's GHOSTTY_RESOURCES_DIR. The previous
-        // env-var-first ordering then tagged those Warp shells as
-        // Ghostty, which fed the wrong terminal app to terminalLocator,
-        // which queried Ghostty's `focused terminal of selected tab of
-        // front window` and stamped a foreign Ghostty pane's
-        // sessionID/cwd/title onto the Warp session's jumpTarget. The
-        // resulting liveAttachmentKey collided with the real Ghostty
-        // owner and the Warp session was deduped out of the island list.
-        if let termProgram = environment["TERM_PROGRAM"]?.lowercased(), !termProgram.isEmpty {
-            switch termProgram {
-            case "apple_terminal":
-                return "Terminal"
-            case "iterm.app", "iterm2":
-                return "iTerm"
-            case let value where value.contains("warp"):
-                return "Warp"
-            case let value where value.contains("ghostty"):
-                return "Ghostty"
-            case "kaku":
-                return "Kaku"
-            case "wezterm":
-                return "WezTerm"
-            case "vscode":
-                // Cursor also sets TERM_PROGRAM=vscode; check its unique
-                // env var first.
-                if environment["CURSOR_TRACE_ID"] != nil {
-                    return "Cursor"
-                }
-                return "VS Code"
-            case "vscode-insiders":
-                return "VS Code Insiders"
-            case "windsurf":
-                return "Windsurf"
-            case "trae":
-                return "Trae"
-            default:
-                break
-            }
+        if environment["GHOSTTY_RESOURCES_DIR"] != nil {
+            return "Ghostty"
         }
 
-        // Fallback for terminals that don't set TERM_PROGRAM (older builds,
-        // exotic launchers, etc.). These per-app env vars are vulnerable to
-        // the GUI inheritance leak documented above; only consult them when
-        // TERM_PROGRAM gave us nothing useful. Within this fallback, check
-        // Warp before Ghostty so a leaked GHOSTTY_RESOURCES_DIR cannot win
-        // over a real WARP_IS_LOCAL_SHELL_SESSION on the same shell.
-        if environment["ITERM_SESSION_ID"] != nil || environment["LC_TERMINAL"] == "iTerm2" {
-            return "iTerm"
-        }
         if environment["WARP_IS_LOCAL_SHELL_SESSION"] != nil {
             return "Warp"
         }
-        if environment["GHOSTTY_RESOURCES_DIR"] != nil {
+
+        let termProgram = environment["TERM_PROGRAM"]?.lowercased()
+        switch termProgram {
+        case .some("apple_terminal"):
+            return "Terminal"
+        case .some("iterm.app"), .some("iterm2"):
+            return "iTerm"
+        case let value? where value.contains("ghostty"):
+            // cmux also sets TERM_PROGRAM=ghostty; already handled above via
+            // CMUX_WORKSPACE_ID / CMUX_SOCKET_PATH, so reaching here means
+            // genuine Ghostty.
             return "Ghostty"
+        case let value? where value.contains("warp"):
+            return "Warp"
+        case .some("kaku"):
+            return "Kaku"
+        case .some("wezterm"):
+            return "WezTerm"
+        case .some("vscode"):
+            // Cursor also sets TERM_PROGRAM=vscode; check its unique env var first
+            if environment["CURSOR_TRACE_ID"] != nil {
+                return "Cursor"
+            }
+            return "VS Code"
+        case .some("vscode-insiders"):
+            return "VS Code Insiders"
+        case .some("windsurf"):
+            return "Windsurf"
+        case .some("trae"):
+            return "Trae"
+        default:
+            break
         }
 
         // JetBrains IDEs set TERMINAL_EMULATOR=JetBrains-JediTerm.

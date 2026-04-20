@@ -23,27 +23,30 @@ private struct AutoHeightScrollView<Content: View>: View {
     @ViewBuilder let content: () -> Content
     @State private var contentHeight: CGFloat = 0
 
-    private var isScrollable: Bool { contentHeight > maxHeight }
-
     var body: some View {
-        // Always use ScrollView so the content gets unconstrained vertical
-        // space for measurement.  Without this, a tight parent window can
-        // cap the GeometryReader measurement, making long content appear
-        // truncated instead of scrollable.
-        ScrollView(.vertical) {
-            content()
-                .background(
-                    GeometryReader { geo in
-                        Color.clear.preference(key: ContentHeightKey.self, value: geo.size.height)
-                    }
-                )
-                .onPreferenceChange(ContentHeightKey.self) { height in
-                    if height > 0 { contentHeight = height }
-                }
+        if contentHeight > maxHeight {
+            // Exceeds max → fixed height, scrollable
+            ScrollView(.vertical) {
+                measuredContent
+            }
+            .scrollIndicators(.hidden)
+            .frame(height: maxHeight)
+        } else {
+            // Fits within max → direct render, auto-height
+            measuredContent
         }
-        .scrollBounceBehavior(.basedOnSize)
-        .scrollIndicators(isScrollable ? .automatic : .hidden)
-        .frame(height: contentHeight > 0 ? min(contentHeight, maxHeight) : nil)
+    }
+
+    private var measuredContent: some View {
+        content()
+            .background(
+                GeometryReader { geo in
+                    Color.clear.preference(key: ContentHeightKey.self, value: geo.size.height)
+                }
+            )
+            .onPreferenceChange(ContentHeightKey.self) { height in
+                if height > 0 { contentHeight = height }
+            }
     }
 }
 
@@ -104,7 +107,6 @@ struct IslandPanelView: View {
     private static let headerHorizontalPadding: CGFloat = 18
     private static let headerTopPadding: CGFloat = 2
     private static let notchLaneSafetyInset: CGFloat = 12
-    private static let closedIdleEdgeHeight: CGFloat = 4
 
     var model: AppModel
 
@@ -142,10 +144,6 @@ struct IslandPanelView: View {
         model.liveSessionCount > 0
     }
 
-    private var showsIdleEdgeWhenCollapsed: Bool {
-        model.showsIdleEdgeWhenCollapsed
-    }
-
     /// Whether any session has activity worth showing in the closed notch
     private var hasClosedActivity: Bool {
         guard let session = closedSpotlightSession else {
@@ -156,9 +154,6 @@ struct IslandPanelView: View {
 
     /// Scout icon tint: blue if any running, green if any live, else gray.
     private var scoutTint: Color {
-        if model.isCustomAppearance, let phase = closedSpotlightSession?.phase {
-            return model.statusColor(for: phase)
-        }
         let sessions = model.surfacedSessions
         if sessions.contains(where: { $0.phase == .running }) {
             return Color(red: 0.43, green: 0.62, blue: 1.0) // #6E9FFF working blue
@@ -175,11 +170,10 @@ struct IslandPanelView: View {
     }
 
     private var expansionWidth: CGFloat {
-        guard !showsIdleEdgeWhenCollapsed else { return 0 }
         guard hasClosedPresence else { return 0 }
+        let leftWidth = sideWidth + 8 + (closedSpotlightSession?.phase.requiresAttention == true ? 18 : 0)
+        let rightWidth = max(sideWidth, countBadgeWidth)
         let hasPending = closedSpotlightSession?.phase.requiresAttention == true
-        let leftWidth = sideWidth + 8 + (hasPending ? 18 : 0)
-        let rightWidth = max(sideWidth, countBadgeWidth) + (hasPending ? 18 : 0)
         return leftWidth + rightWidth + 16 + (hasPending ? 6 : 0)
     }
 
@@ -207,17 +201,6 @@ struct IslandPanelView: View {
     private var usesNotchAwareOpenedHeader: Bool {
         model.overlayPlacementDiagnostics?.mode == .notch
             || targetOverlayScreen?.safeAreaInsets.top ?? 0 > 0
-    }
-
-    /// True when the closed island sits on an external (non-notched) display.
-    /// The central black rectangle is otherwise aligned with the physical
-    /// notch, so center content is only useful here.
-    private var isExternalDisplayPlacement: Bool {
-        if let mode = model.overlayPlacementDiagnostics?.mode {
-            return mode == .topBar
-        }
-        // Fallback when diagnostics haven't been populated yet.
-        return (targetOverlayScreen?.safeAreaInsets.top ?? 0) == 0
     }
 
     private var openedHeaderButtonsWidth: CGFloat {
@@ -266,55 +249,39 @@ struct IslandPanelView: View {
             topCornerRadius: usesOpenedVisualState ? NotchShape.openedTopRadius : NotchShape.closedTopRadius,
             bottomCornerRadius: usesOpenedVisualState ? NotchShape.openedBottomRadius : NotchShape.closedBottomRadius
         )
-        let hidesClosedSurfaceChrome = showsIdleEdgeWhenCollapsed && !usesOpenedVisualState
-        let idleEdgeWidth = closedNotchWidth + (isPopping ? 18 : 0)
 
-        VStack(spacing: 0) {
-            ZStack(alignment: .top) {
-                surfaceShape
-                    .fill(Color.black.opacity(hidesClosedSurfaceChrome ? 0 : 1))
-                    .frame(width: surfaceWidth, height: surfaceHeight)
+        ZStack(alignment: .top) {
+            surfaceShape
+                .fill(Color.black)
+                .frame(width: surfaceWidth, height: surfaceHeight)
 
-                VStack(spacing: 0) {
-                    headerRow
-                        .frame(height: closedNotchHeight)
-                        .opacity(hidesClosedSurfaceChrome ? 0 : 1)
+            VStack(spacing: 0) {
+                headerRow
+                    .frame(height: closedNotchHeight)
 
-                    openedContent
-                        .frame(width: openedWidth - 24)
-                        .frame(maxHeight: usesOpenedVisualState ? currentHeight - closedNotchHeight - 12 : 0, alignment: .top)
-                        .opacity(usesOpenedVisualState ? 1 : 0)
-                        .clipped()
-                }
-                .frame(width: currentWidth, height: currentHeight, alignment: .top)
-                .padding(.horizontal, horizontalInset)
-                .padding(.bottom, bottomInset)
-                .clipShape(surfaceShape)
-                .overlay(alignment: .top) {
-                    // Black strip to blend with physical notch at the very top
-                    Rectangle()
-                        .fill(Color.black)
-                        .frame(height: 1)
-                        .padding(.horizontal, usesOpenedVisualState ? NotchShape.openedTopRadius : NotchShape.closedTopRadius)
-                        .opacity(hidesClosedSurfaceChrome ? 0 : 1)
-                }
-                .overlay {
-                    surfaceShape
-                        .stroke(Color.white.opacity(hidesClosedSurfaceChrome ? 0 : (usesOpenedVisualState ? 0.07 : 0.04)), lineWidth: 1)
-                }
-                .overlay(alignment: .top) {
-                    Capsule()
-                        .fill(Color.black)
-                        .frame(width: idleEdgeWidth, height: Self.closedIdleEdgeHeight)
-                        .overlay {
-                            Capsule()
-                                .stroke(Color.white.opacity(0.05), lineWidth: 1)
-                        }
-                        .opacity(showsIdleEdgeWhenCollapsed ? 1 : 0)
-                }
+                openedContent
+                    .frame(width: openedWidth - 24)
+                    .frame(maxHeight: usesOpenedVisualState ? currentHeight - closedNotchHeight - 12 : 0, alignment: .top)
+                    .opacity(usesOpenedVisualState ? 1 : 0)
+                    .clipped()
             }
-            .frame(width: surfaceWidth, height: surfaceHeight, alignment: .top)
+            .frame(width: currentWidth, height: currentHeight, alignment: .top)
+            .padding(.horizontal, horizontalInset)
+            .padding(.bottom, bottomInset)
+            .clipShape(surfaceShape)
+            .overlay(alignment: .top) {
+                // Black strip to blend with physical notch at the very top
+                Rectangle()
+                    .fill(Color.black)
+                    .frame(height: 1)
+                    .padding(.horizontal, usesOpenedVisualState ? NotchShape.openedTopRadius : NotchShape.closedTopRadius)
+            }
+            .overlay {
+                surfaceShape
+                    .stroke(Color.white.opacity(usesOpenedVisualState ? 0.07 : 0.04), lineWidth: 1)
+            }
         }
+        .frame(width: surfaceWidth, height: surfaceHeight, alignment: .top)
         .scaleEffect(usesOpenedVisualState ? 1 : (isHovering ? IslandChromeMetrics.closedHoverScale : 1), anchor: .top)
         .padding(.horizontal, panelShadowHorizontalInset)
         .padding(.bottom, panelShadowBottomInset)
@@ -354,18 +321,8 @@ struct IslandPanelView: View {
             HStack(spacing: 0) {
                 if hasClosedPresence {
                     HStack(spacing: 4) {
-                        if model.isCustomAppearance {
-                            IslandPixelGlyph(
-                                tint: scoutTint,
-                                style: model.islandPixelShapeStyle,
-                                isAnimating: hasClosedActivity,
-                                customAvatarImage: model.customAvatarImage
-                            )
+                        OpenIslandIcon(size: 14, isAnimating: hasClosedActivity, tint: scoutTint)
                             .matchedGeometryEffect(id: "island-icon", in: notchNamespace, isSource: true)
-                        } else {
-                            OpenIslandIcon(size: 14, isAnimating: hasClosedActivity, tint: scoutTint)
-                                .matchedGeometryEffect(id: "island-icon", in: notchNamespace, isSource: true)
-                        }
 
                         if closedSpotlightSession?.phase.requiresAttention == true {
                             AttentionIndicator(
@@ -385,23 +342,15 @@ struct IslandPanelView: View {
                     Rectangle()
                         .fill(Color.black)
                         .frame(width: closedNotchWidth - NotchShape.closedTopRadius + (isPopping ? 18 : 0))
-                        .overlay(
-                            CentralActivityLabel(
-                                toolName: closedSpotlightSession?.currentToolName,
-                                preview: closedSpotlightSession?.currentCommandPreviewText,
-                                isVisible: isExternalDisplayPlacement && hasClosedPresence
-                            )
-                        )
                 }
 
                 if hasClosedPresence {
-                    let attentionBalanceWidth: CGFloat = closedSpotlightSession?.phase.requiresAttention == true ? 18 : 0
                     ClosedCountBadge(
                         liveCount: model.liveSessionCount,
                         tint: closedSpotlightSession?.phase.requiresAttention == true ? .orange : scoutTint
                     )
                     .matchedGeometryEffect(id: "right-indicator", in: notchNamespace, isSource: true)
-                    .frame(width: max(sideWidth, countBadgeWidth) + attentionBalanceWidth)
+                    .frame(width: max(sideWidth, countBadgeWidth))
                 }
             }
             .frame(height: closedNotchHeight)
@@ -476,11 +425,7 @@ struct IslandPanelView: View {
     }
 
     private var openedContent: some View {
-        VStack(spacing: 8) {
-            if !model.hasAnyInstalledAgent {
-                installHooksHint
-            }
-
+        VStack(spacing: 0) {
             if model.shouldShowSessionBootstrapPlaceholder {
                 sessionBootstrapPlaceholder
             } else if model.islandListSessions.isEmpty {
@@ -492,43 +437,6 @@ struct IslandPanelView: View {
         .padding(.horizontal, 18)
         .padding(.top, 8)
         .padding(.bottom, 0)
-    }
-
-    /// Persistent hint at the top of the expanded island while no agent
-    /// hooks are installed. Decoupled from session presence — process
-    /// discovery routinely surfaces sessions even on a freshly cleaned
-    /// install, so the empty-state branch alone never reaches users who
-    /// already run an agent.
-    private var installHooksHint: some View {
-        Button {
-            model.showOnboarding()
-        } label: {
-            HStack(spacing: 8) {
-                Image(systemName: "sparkles")
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(Color.accentColor)
-                Text(model.lang.t("island.hint.installHooks"))
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(.white.opacity(0.85))
-                    .lineLimit(2)
-                    .multilineTextAlignment(.leading)
-                Spacer(minLength: 0)
-                Image(systemName: "chevron.right")
-                    .font(.system(size: 10, weight: .semibold))
-                    .foregroundStyle(.white.opacity(0.4))
-            }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
-            .background(
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .fill(Color.accentColor.opacity(0.14))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 10, style: .continuous)
-                            .stroke(Color.accentColor.opacity(0.35), lineWidth: 0.5)
-                    )
-            )
-        }
-        .buttonStyle(.plain)
     }
 
     private var sessionBootstrapPlaceholder: some View {
@@ -596,14 +504,10 @@ struct IslandPanelView: View {
                         }
                     }
             } else {
-                // List mode: scroll when content exceeds the panel's available space.
-                // The parent frame constraint (currentHeight - closedNotchHeight - 12)
-                // determines the viewport; ScrollView handles overflow naturally.
-                ScrollView(.vertical) {
+                // List mode: auto-height (fits content, scrolls only when exceeding max)
+                AutoHeightScrollView(maxHeight: Self.maxSessionListHeight) {
                     sessionListContent(context: context)
                 }
-                .scrollIndicators(.hidden)
-                .scrollBounceBehavior(.basedOnSize)
                 .padding(.vertical, 2)
             }
         }
@@ -622,8 +526,6 @@ struct IslandPanelView: View {
                     lang: model.lang,
                     onApprove: { model.approvePermission(for: session.id, action: $0) },
                     onAnswer: { model.answerQuestion(for: session.id, answer: $0) },
-                    onReply: TerminalTextSender.canReply(to: session, enabled: model.completionReplyEnabled)
-                        ? { model.replyToSession(session, text: $0) } : nil,
                     onJump: { model.jumpToSession(session) }
                 )
 
@@ -651,8 +553,6 @@ struct IslandPanelView: View {
                         lang: model.lang,
                         onApprove: { model.approvePermission(for: session.id, action: $0) },
                         onAnswer: { model.answerQuestion(for: session.id, answer: $0) },
-                        onReply: TerminalTextSender.canReply(to: session, enabled: model.completionReplyEnabled)
-                            ? { model.replyToSession(session, text: $0) } : nil,
                         onJump: { model.jumpToSession(session) },
                         onDismiss: session.isRemote ? { model.dismissSession(session.id) } : nil
                     )
@@ -668,10 +568,7 @@ struct IslandPanelView: View {
     }
 
     private func phaseColor(_ phase: SessionPhase) -> Color {
-        if model.isCustomAppearance {
-            return model.statusColor(for: phase)
-        }
-        return switch phase {
+        switch phase {
         case .running: .mint
         case .waitingForApproval: .orange
         case .waitingForAnswer: .yellow
@@ -744,8 +641,7 @@ struct IslandPanelView: View {
             }
         }
 
-        if model.showCodexUsage,
-           let snapshot = model.codexUsageSnapshot,
+        if let snapshot = model.codexUsageSnapshot,
            snapshot.isEmpty == false {
             let windows = snapshot.windows.map { window in
                 UsageWindowPresentation(
@@ -896,7 +792,15 @@ struct IslandPanelView: View {
         layout: UsageSummaryLayout
     ) -> some View {
         HStack(spacing: 4) {
-            if layout.showsWindowLabel {
+            // Countdown shows in every layout when resetsAt is available.
+            // Static label only appears in full/compact (showsWindowLabel)
+            // as a fallback when there is no reset time.
+            if let resetsAt = window.resetsAt,
+               let remaining = compactRemainingDurationString(until: resetsAt) {
+                Text(remaining)
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(.yellow)
+            } else if layout.showsWindowLabel {
                 Text(window.label)
                     .font(.system(size: 11, weight: .semibold))
                     .foregroundStyle(.white.opacity(0.55))
@@ -940,6 +844,30 @@ struct IslandPanelView: View {
         default:
             .green.opacity(0.95)
         }
+    }
+
+    /// Two-unit compact countdown for the label slot (e.g. "3h 44m", "45m").
+    /// Uses at most 2 units so the text stays narrow enough for ViewThatFits
+    /// to pick .full or .compact layout (where showsWindowLabel is true).
+    private func compactRemainingDurationString(until date: Date) -> String? {
+        let interval = date.timeIntervalSinceNow
+        guard interval > 0 else {
+            return nil
+        }
+
+        let formatter = DateComponentsFormatter()
+        formatter.unitsStyle = .abbreviated
+        formatter.maximumUnitCount = 2
+
+        if interval >= 86_400 {
+            formatter.allowedUnits = [.day, .hour]
+        } else if interval >= 3_600 {
+            formatter.allowedUnits = [.hour, .minute]
+        } else {
+            formatter.allowedUnits = [.minute]
+        }
+
+        return formatter.string(from: interval)
     }
 
     private func remainingDurationString(until date: Date) -> String? {
@@ -1080,13 +1008,11 @@ private struct IslandSessionRow: View {
     var lang: LanguageManager = .shared
     var onApprove: ((ApprovalAction) -> Void)?
     var onAnswer: ((QuestionPromptResponse) -> Void)?
-    var onReply: ((String) -> Void)?
     let onJump: () -> Void
     var onDismiss: (() -> Void)?
 
     @State private var isHighlighted = false
     @State private var isManuallyExpanded = false
-    @State private var replyText: String = ""
 
     var body: some View {
         rowBody(referenceDate: referenceDate)
@@ -1114,7 +1040,9 @@ private struct IslandSessionRow: View {
                             if session.isRemote {
                                 compactBadge("SSH", presence: presence, icon: "network")
                             }
-                            if let terminalBadge = session.spotlightTerminalBadge {
+                            if let modelBadge = session.spotlightModelBadge {
+                                compactBadge(modelBadge, presence: presence, tint: .orange)
+                            } else if let terminalBadge = session.spotlightTerminalBadge {
                                 compactBadge(terminalBadge, presence: presence)
                             }
                             compactBadge(session.spotlightAgeBadge, presence: presence)
@@ -1387,14 +1315,6 @@ private struct IslandSessionRow: View {
                     .padding(.horizontal, 14)
                     .padding(.vertical, 10)
             }
-
-            if onReply != nil {
-                Rectangle()
-                    .fill(.white.opacity(0.04))
-                    .frame(height: 1)
-
-                completionReplyInput
-            }
         }
         .background(
             RoundedRectangle(cornerRadius: 18, style: .continuous)
@@ -1404,38 +1324,6 @@ private struct IslandSessionRow: View {
             RoundedRectangle(cornerRadius: 18, style: .continuous)
                 .strokeBorder(.white.opacity(0.08))
         )
-    }
-
-    @ViewBuilder
-    private var completionReplyInput: some View {
-        HStack(spacing: 8) {
-            ReplyTextField(
-                placeholder: lang.t("completion.replyPlaceholder"),
-                text: $replyText,
-                onSubmit: { submitReply() }
-            )
-            .frame(height: 32)
-
-            Button {
-                submitReply()
-            } label: {
-                Image(systemName: "arrow.up.circle.fill")
-                    .font(.system(size: 24))
-                    .foregroundColor(replyText.trimmingCharacters(in: .whitespaces).isEmpty
-                        ? .white.opacity(0.2) : .white.opacity(0.9))
-            }
-            .buttonStyle(.plain)
-            .disabled(replyText.trimmingCharacters(in: .whitespaces).isEmpty)
-        }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 10)
-    }
-
-    private func submitReply() {
-        let text = replyText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty else { return }
-        replyText = ""
-        onReply?(text)
     }
 
     // MARK: - Actionable helpers
@@ -1448,7 +1336,7 @@ private struct IslandSessionRow: View {
     }
 
     private var completionMessageText: String {
-        if let text = session.completionAssistantMessageText?.trimmedForNotificationCard, !text.isEmpty {
+        if let text = session.lastAssistantMessageText?.trimmedForNotificationCard, !text.isEmpty {
             return text
         }
         return session.summary
@@ -1546,9 +1434,12 @@ private struct IslandSessionRow: View {
     private func compactBadge(
         _ title: String,
         presence: IslandSessionPresence,
-        icon: String? = nil
+        icon: String? = nil,
+        tint: Color? = nil
     ) -> some View {
-        HStack(spacing: 3) {
+        let fg: Color = tint?.opacity(0.92) ?? badgeTextColor(for: presence)
+        let bg: Color = tint != nil ? tint!.opacity(0.16) : Color(red: 0.14, green: 0.14, blue: 0.15)
+        return HStack(spacing: 3) {
             if let icon {
                 Image(systemName: icon)
                     .font(.system(size: 7.5, weight: .semibold))
@@ -1556,10 +1447,10 @@ private struct IslandSessionRow: View {
             Text(title)
                 .font(.system(size: 9, weight: .semibold))
         }
-        .foregroundStyle(badgeTextColor(for: presence))
+        .foregroundStyle(fg)
         .padding(.horizontal, 7)
         .padding(.vertical, 3.5)
-        .background(Color(red: 0.14, green: 0.14, blue: 0.15), in: Capsule())
+        .background(bg, in: Capsule())
     }
 
     private func headlineColor(for presence: IslandSessionPresence) -> Color {
@@ -1611,7 +1502,7 @@ private struct StructuredQuestionPromptView: View {
     @State private var selections: [String: Set<String>] = [:]
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: 12) {
             if showsPromptTitle {
                 Text(promptTitle)
                     .font(.system(size: 13, weight: .semibold))
@@ -1619,20 +1510,55 @@ private struct StructuredQuestionPromptView: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
 
-            VStack(alignment: .leading, spacing: 10) {
-                ForEach(structuredQuestions, id: \.question) { question in
-                    questionRow(question)
+            if structuredQuestions.isEmpty {
+                HStack(spacing: 10) {
+                    ForEach(prompt?.options.prefix(3) ?? [], id: \.self) { option in
+                        Button(option) {
+                            onAnswer(QuestionPromptResponse(answer: option))
+                        }
+                        .buttonStyle(IslandWideButtonStyle(kind: .secondary))
+                    }
                 }
+            } else {
+                ScrollView(.vertical, showsIndicators: false) {
+                    VStack(alignment: .leading, spacing: 12) {
+                        ForEach(structuredQuestions, id: \.question) { question in
+                            VStack(alignment: .leading, spacing: 8) {
+                                Text(question.header)
+                                    .font(.system(size: 10.5, weight: .bold))
+                                    .foregroundStyle(.white.opacity(0.5))
 
-                Button(lang.t("question.submit")) {
-                    onAnswer(QuestionPromptResponse(answers: answerMap))
+                                Text(question.question)
+                                    .font(.system(size: 12.5, weight: .medium))
+                                    .foregroundStyle(.white.opacity(0.88))
+                                    .fixedSize(horizontal: false, vertical: true)
+
+                                HStack(spacing: 8) {
+                                    ForEach(question.options.prefix(4), id: \.label) { option in
+                                        Button(option.label) {
+                                            toggle(option: option.label, for: question)
+                                        }
+                                        .buttonStyle(
+                                            IslandWideButtonStyle(
+                                                kind: selectedLabels(for: question).contains(option.label) ? .primary : .secondary
+                                            )
+                                        )
+                                    }
+                                }
+                            }
+                        }
+
+                        Button(lang.t("question.submit")) {
+                            onAnswer(QuestionPromptResponse(answers: answerMap))
+                        }
+                        .buttonStyle(IslandWideButtonStyle(kind: .primary))
+                        .disabled(!hasCompleteSelection)
+                    }
                 }
-                .buttonStyle(IslandWideButtonStyle(kind: .primary))
-                .disabled(!hasCompleteSelection)
             }
         }
         .padding(.horizontal, 14)
-        .padding(.vertical, 10)
+        .padding(.vertical, 12)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
             RoundedRectangle(cornerRadius: 18, style: .continuous)
@@ -1643,76 +1569,6 @@ private struct StructuredQuestionPromptView: View {
                 .strokeBorder(.white.opacity(0.06))
         )
     }
-
-    // MARK: - Per-question row
-
-    /// Renders a single question with its header, text, and vertical option list.
-    @ViewBuilder
-    private func questionRow(_ question: QuestionPromptItem) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            if structuredQuestions.count > 1 {
-                Text(question.header)
-                    .font(.system(size: 10, weight: .bold))
-                    .foregroundStyle(.white.opacity(0.5))
-            }
-
-            Text(question.question)
-                .font(.system(size: 12, weight: .medium))
-                .foregroundStyle(.white.opacity(0.88))
-                .fixedSize(horizontal: false, vertical: true)
-
-            // Vertical option list
-            VStack(alignment: .leading, spacing: 4) {
-                ForEach(question.options) { option in
-                    optionRow(option, question: question)
-                }
-            }
-        }
-    }
-
-    // MARK: - Option row (vertical, CLI-style)
-
-    /// Renders a single option as a selectable row with checkmark indicator, label, and optional description.
-    private func optionRow(_ option: QuestionOption, question: QuestionPromptItem) -> some View {
-        let isSelected = selectedLabels(for: question).contains(option.label)
-        return Button {
-            toggle(option: option.label, for: question)
-        } label: {
-            HStack(spacing: 8) {
-                Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(isSelected ? .yellow : .white.opacity(0.35))
-
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(option.label)
-                        .font(.system(size: 12, weight: .medium))
-                        .foregroundStyle(.white.opacity(isSelected ? 1 : 0.78))
-
-                    if !option.description.isEmpty {
-                        Text(option.description)
-                            .font(.system(size: 10.5))
-                            .foregroundStyle(.white.opacity(0.4))
-                            .lineLimit(1)
-                    }
-                }
-
-                Spacer(minLength: 0)
-            }
-            .padding(.vertical, 5)
-            .padding(.horizontal, 10)
-            .background(
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .fill(isSelected ? Color.yellow.opacity(0.10) : Color.white.opacity(0.04))
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .strokeBorder(isSelected ? .yellow.opacity(0.25) : .clear)
-            )
-        }
-        .buttonStyle(.plain)
-    }
-
-    // MARK: - Helpers
 
     private var structuredQuestions: [QuestionPromptItem] {
         prompt?.questions ?? []
@@ -1741,6 +1597,7 @@ private struct StructuredQuestionPromptView: View {
             guard !selected.isEmpty else {
                 return nil
             }
+
             return (question.question, selected.sorted().joined(separator: ", "))
         })
     }
@@ -1771,74 +1628,6 @@ private struct StructuredQuestionPromptView: View {
         }
 
         selections[question.question] = selected
-    }
-}
-
-// MARK: - Reply TextField (NSTextField wrapper for IME-safe Enter handling)
-
-/// NSTextField wrapper that fires `onSubmit` only when the IME composition
-/// is finished — pressing Enter during Chinese/Japanese IME composition
-/// confirms the candidate instead of submitting.
-private struct ReplyTextField: NSViewRepresentable {
-    var placeholder: String
-    @Binding var text: String
-    var onSubmit: () -> Void
-
-    func makeNSView(context: Context) -> NSTextField {
-        let field = NSTextField()
-        field.isBordered = false
-        field.drawsBackground = false
-        field.focusRingType = .none
-        field.font = .systemFont(ofSize: 13)
-        field.textColor = .white
-        field.placeholderAttributedString = NSAttributedString(
-            string: placeholder,
-            attributes: [
-                .foregroundColor: NSColor.white.withAlphaComponent(0.35),
-                .font: NSFont.systemFont(ofSize: 13),
-            ]
-        )
-        field.delegate = context.coordinator
-        field.cell?.lineBreakMode = .byTruncatingTail
-        field.cell?.usesSingleLineMode = true
-        return field
-    }
-
-    func updateNSView(_ nsView: NSTextField, context: Context) {
-        if nsView.stringValue != text {
-            nsView.stringValue = text
-        }
-        context.coordinator.onSubmit = onSubmit
-    }
-
-    func makeCoordinator() -> Coordinator {
-        Coordinator(text: $text, onSubmit: onSubmit)
-    }
-
-    final class Coordinator: NSObject, NSTextFieldDelegate {
-        var text: Binding<String>
-        var onSubmit: () -> Void
-
-        init(text: Binding<String>, onSubmit: @escaping () -> Void) {
-            self.text = text
-            self.onSubmit = onSubmit
-        }
-
-        func controlTextDidChange(_ obj: Notification) {
-            guard let field = obj.object as? NSTextField else { return }
-            text.wrappedValue = field.stringValue
-        }
-
-        func control(_ control: NSControl, textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
-            if commandSelector == #selector(NSResponder.insertNewline(_:)) {
-                // Let AppKit handle Enter during IME composition (e.g. confirming
-                // a Chinese/Japanese candidate). Only submit when no marked text.
-                guard !textView.hasMarkedText() else { return false }
-                onSubmit()
-                return true
-            }
-            return false
-        }
     }
 }
 
@@ -1953,109 +1742,6 @@ private struct ClosedCountBadge: View {
             .padding(.horizontal, 8)
             .padding(.vertical, 2)
             .background(Color(red: 0.14, green: 0.14, blue: 0.15), in: Capsule())
-    }
-}
-
-// MARK: - Central activity overlay (external-display only)
-
-/// Renders the focus session's current tool call inside the central black
-/// rectangle of the closed island. The notch on built-in displays physically
-/// covers this area, so we gate rendering on `placementMode == .topBar`.
-///
-/// State machine: while a tool is active the label tracks it live. When the
-/// tool clears (PostToolUse fires or metadata drops the field), the last
-/// value lingers for `fadeDelay` then disappears.
-private struct CentralActivityLabel: View {
-    let toolName: String?
-    let preview: String?
-    let isVisible: Bool
-
-    @State private var displayed: DisplayedActivity?
-
-    private static let fadeDelay: Duration = .seconds(2)
-
-    struct DisplayedActivity: Equatable {
-        var tool: String
-        var preview: String?
-    }
-
-    var body: some View {
-        Group {
-            if isVisible, let displayed {
-                HStack(spacing: 4) {
-                    Image(systemName: Self.icon(for: displayed.tool))
-                        .font(.system(size: 9, weight: .semibold))
-                    Text(Self.label(for: displayed))
-                        .font(.system(size: 10, weight: .semibold))
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                }
-                .foregroundStyle(.white.opacity(0.85))
-                .padding(.horizontal, 8)
-                .transition(.opacity.combined(with: .scale(scale: 0.96)))
-            }
-        }
-        .animation(.easeOut(duration: 0.22), value: displayed)
-        .onChange(of: trackingKey, initial: true) { _, _ in
-            sync()
-        }
-        .task(id: clearTaskID) {
-            guard toolName == nil, displayed != nil else { return }
-            do {
-                try await Task.sleep(for: Self.fadeDelay)
-                displayed = nil
-            } catch {
-                // cancelled — a new tool arrived, let sync() handle it
-            }
-        }
-    }
-
-    /// Composite key so `.onChange` fires on either tool or preview change.
-    private var trackingKey: String {
-        "\(toolName ?? "")|\(preview ?? "")"
-    }
-
-    /// Key used to (re)start the clear timer. Changes whenever we transition
-    /// between active/idle so `.task(id:)` cancels and restarts cleanly.
-    private var clearTaskID: String {
-        toolName == nil ? "clearing-\(displayed?.tool ?? "")" : "active-\(toolName ?? "")"
-    }
-
-    private func sync() {
-        if let toolName, !toolName.isEmpty {
-            displayed = DisplayedActivity(tool: toolName, preview: preview)
-        }
-    }
-
-    private static func label(for activity: DisplayedActivity) -> String {
-        if let preview = activity.preview?.trimmingCharacters(in: .whitespacesAndNewlines),
-           !preview.isEmpty {
-            return "\(activity.tool) · \(preview)"
-        }
-        return activity.tool
-    }
-
-    private static func icon(for tool: String) -> String {
-        let lower = tool.lowercased()
-        if lower.contains("grep") || lower.contains("search") || lower.contains("glob") {
-            return "magnifyingglass"
-        }
-        if lower.contains("edit") || lower.contains("write") {
-            return "pencil"
-        }
-        if lower.contains("bash") || lower.contains("shell") || lower.contains("exec") || lower.contains("run") {
-            return "terminal"
-        }
-        if lower.contains("read") {
-            return "doc.text"
-        }
-        if lower.contains("web") || lower.contains("fetch") {
-            return "globe"
-        }
-        if lower.contains("task") || lower.contains("agent") || lower.contains("subagent") {
-            return "sparkles"
-        }
-        return "wrench.and.screwdriver"
     }
 }
 

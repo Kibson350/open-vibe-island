@@ -181,32 +181,6 @@ struct ClaudeHooksTests {
     }
 
     @Test
-    func claudeInferTerminalAppPrefersWarpOverLeakedGhosttyEnvVars() {
-        // Regression: launching Warp from a Ghostty tab leaks
-        // GHOSTTY_RESOURCES_DIR (and friends) into every Warp shell via
-        // macOS GUI app environment inheritance. The previous env-var-first
-        // ordering tagged those Warp shells as Ghostty, causing
-        // terminalLocator to query Ghostty's focused tab and stamp a
-        // foreign Ghostty pane onto the Warp session's jumpTarget.
-        // TERM_PROGRAM is the only signal that doesn't leak this way and
-        // must dominate per-app env vars.
-        let payload = ClaudeHookPayload(
-            cwd: "/tmp/demo", hookEventName: .sessionStart, sessionID: "s1"
-        ).withRuntimeContext(
-            environment: [
-                "TERM_PROGRAM": "WarpTerminal",
-                "WARP_IS_LOCAL_SHELL_SESSION": "1",
-                "GHOSTTY_RESOURCES_DIR": "/Applications/Ghostty.app/Contents/Resources/ghostty",
-                "GHOSTTY_BIN_DIR": "/Applications/Ghostty.app/Contents/MacOS",
-            ],
-            currentTTYProvider: { nil },
-            terminalLocatorProvider: { _ in (sessionID: nil, tty: nil, title: nil) }
-        )
-
-        #expect(payload.terminalApp == "Warp")
-    }
-
-    @Test
     func claudeDefaultJumpTargetUsesUnknownSentinelForUnrecognizedTerminal() {
         let payload = ClaudeHookPayload(
             cwd: "/tmp/demo", hookEventName: .sessionStart, sessionID: "s1"
@@ -375,61 +349,6 @@ struct ClaudeHooksTests {
         #expect(answers["Which environment?"] == .string("Staging"))
         #expect(answers["Which checks?"] == .string("Lint, Unit tests"))
     }
-
-    @Test
-    func claudeDefaultJumpTargetForwardsWarpPaneUUID() {
-        let payload = ClaudeHookPayload(
-            cwd: "/tmp/demo",
-            hookEventName: .sessionStart,
-            sessionID: "s1",
-            terminalApp: "Warp",
-            warpPaneUUID: "D1A5DF3027E44FC080FE2656FAF2BA2E"
-        )
-        #expect(payload.defaultJumpTarget.warpPaneUUID == "D1A5DF3027E44FC080FE2656FAF2BA2E")
-    }
-
-    @Test
-    func claudeWithRuntimeContextPopulatesWarpPaneUUIDFromResolver() {
-        let payload = ClaudeHookPayload(
-            cwd: "/Users/u/demo",
-            hookEventName: .sessionStart,
-            sessionID: "s1"
-        ).withRuntimeContext(
-            environment: ["WARP_IS_LOCAL_SHELL_SESSION": "1"],
-            currentTTYProvider: { nil },
-            terminalLocatorProvider: { _ in (sessionID: nil, tty: nil, title: nil) },
-            warpPaneResolver: { cwd in
-                cwd == "/Users/u/demo" ? "DEADBEEFDEADBEEFDEADBEEFDEADBEEF" : nil
-            }
-        )
-
-        #expect(payload.terminalApp == "Warp")
-        #expect(payload.warpPaneUUID == "DEADBEEFDEADBEEFDEADBEEFDEADBEEF")
-        #expect(payload.defaultJumpTarget.warpPaneUUID == "DEADBEEFDEADBEEFDEADBEEFDEADBEEF")
-    }
-
-    @Test
-    func claudeWithRuntimeContextSkipsWarpResolverForNonWarpTerminal() {
-        var resolverCalls = 0
-        let payload = ClaudeHookPayload(
-            cwd: "/Users/u/demo",
-            hookEventName: .sessionStart,
-            sessionID: "s1"
-        ).withRuntimeContext(
-            environment: ["TERM_PROGRAM": "ghostty"],
-            currentTTYProvider: { nil },
-            terminalLocatorProvider: { _ in (sessionID: nil, tty: nil, title: nil) },
-            warpPaneResolver: { _ in
-                resolverCalls += 1
-                return "SHOULD-NOT-BE-USED"
-            }
-        )
-
-        #expect(payload.terminalApp == "Ghostty")
-        #expect(payload.warpPaneUUID == nil)
-        #expect(resolverCalls == 0)
-    }
-
 }
 
 private enum ClaudeHooksTestError: Error {

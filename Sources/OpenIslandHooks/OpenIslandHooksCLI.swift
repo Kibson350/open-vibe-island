@@ -14,14 +14,12 @@ struct OpenIslandHooksCLI {
         case droid
         case codebuddy
         case cursor
-        case gemini
-        case kimi
 
         var isClaudeFormat: Bool {
             switch self {
-            case .claude, .qoder, .qwen, .factory, .droid, .codebuddy, .kimi:
+            case .claude, .qoder, .qwen, .factory, .droid, .codebuddy:
                 return true
-            case .codex, .cursor, .gemini:
+            case .codex, .cursor:
                 return false
             }
         }
@@ -54,7 +52,7 @@ struct OpenIslandHooksCLI {
                 if let output = try CodexHookOutputEncoder.standardOutput(for: response) {
                     FileHandle.standardOutput.write(output)
                 }
-            case .claude, .qoder, .qwen, .factory, .droid, .codebuddy, .kimi:
+            case .claude, .qoder, .qwen, .factory, .droid, .codebuddy:
                 var payload = try decoder
                     .decode(ClaudeHookPayload.self, from: input)
                     .withRuntimeContext(environment: ProcessInfo.processInfo.environment)
@@ -89,12 +87,6 @@ struct OpenIslandHooksCLI {
                     FileHandle.standardOutput.write(output)
                     FileHandle.standardOutput.write(Data("\n".utf8))
                 }
-            case .gemini:
-                let payload = try decoder
-                    .decode(GeminiHookPayload.self, from: input)
-                    .withRuntimeContext(environment: ProcessInfo.processInfo.environment)
-
-                _ = try? client.send(.processGeminiHook(payload), timeout: 45)
             }
         } catch {
             // Hooks should fail open so the CLI continues working even if the bridge is unavailable.

@@ -88,7 +88,7 @@ Open `Package.swift` in Xcode for the app target. Requires macOS 14+, Swift 6.2.
 
 - **Bilingual required**: Every release MUST include both English and Chinese (Simplified) descriptions. Use the template in `.github/RELEASE_TEMPLATE.md`.
 - Before creating a release, fetch remote `main` and review ALL merged PRs since the last tag to avoid missing changes.
-- Each changelog entry follows the format: `- **Category**: English description (#PR)\n  中文描述 (#PR)`. For external contributors, append `— Thanks @username` to the English line.
+- Each changelog entry follows the format: `- **Category**: English description (#PR)\n  中文描述 (#PR)`
 - The release title follows: `Open Island vX.Y.Z — Short English Title`
 - The Installation section must be bilingual.
 - Release is triggered by pushing a `v*` tag to `main`. The GitHub Actions workflow builds, signs, notarizes, and publishes the DMG automatically.
@@ -98,7 +98,6 @@ Open `Package.swift` in Xcode for the app target. Requires macOS 14+, Swift 6.2.
 - `OpenIslandApp` (via `swift run OpenIslandApp` or the Xcode target) is the canonical development runtime.
 - `~/Applications/Open Island Dev.app` is a local bundle wrapper around the repo-built binary, not a separate product.
 - When launching `Open Island Dev.app`, refresh the bundle first with `zsh scripts/launch-dev-app.sh` instead of only `open -na` (avoids stale binaries).
-- **One-time setup**: run `zsh scripts/setup-dev-signing.sh` once to create a local self-signed code signing identity. Without it the dev bundle is ad-hoc signed, which changes cdhash every rebuild and silently invalidates any macOS TCC grant (Accessibility, Automation) you gave the previous build. Required when iterating on features that touch AX API (precision jump, keystroke/menu injection, etc.).
 - Use `scripts/harness.sh smoke` or `scripts/smoke-dev-app.sh` only for deterministic harness runs.
 - `/Applications/Vibe Island.app` and `https://vibeisland.app/` are closed-source reference baselines only — behavior benchmarks, not the development runtime.
 

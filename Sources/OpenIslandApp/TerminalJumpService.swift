@@ -8,38 +8,11 @@ struct TerminalJumpService {
     typealias OpenAction = @Sendable ([String]) throws -> Void
     typealias AppleScriptRunner = @Sendable (String) throws -> String
     typealias ProcessRunner = @Sendable (String, [String]) -> Bool
-    typealias WarpFocusedPaneReader = @Sendable () -> String?
-    typealias WarpTabCountReader = @Sendable () -> Int
-    /// Returns true when Warp is the system's frontmost app and ready to
-    /// receive the next tab-advance command. Production asks
-    /// `NSWorkspace.shared.frontmostApplication`; tests inject `{ true }`
-    /// to skip the polling loop entirely.
-    typealias WarpFrontmostChecker = @Sendable () -> Bool
 
     private struct TerminalAppDescriptor {
         let displayName: String
         let bundleIdentifier: String
         let aliases: [String]
-        let alternateBundleIdentifiers: [String]
-        let preferredBundleIdentifiersByAlias: [String: String]
-
-        init(
-            displayName: String,
-            bundleIdentifier: String,
-            aliases: [String],
-            alternateBundleIdentifiers: [String] = [],
-            preferredBundleIdentifiersByAlias: [String: String] = [:]
-        ) {
-            self.displayName = displayName
-            self.bundleIdentifier = bundleIdentifier
-            self.aliases = aliases
-            self.alternateBundleIdentifiers = alternateBundleIdentifiers
-            self.preferredBundleIdentifiersByAlias = preferredBundleIdentifiersByAlias
-        }
-
-        var allBundleIdentifiers: [String] {
-            [bundleIdentifier] + alternateBundleIdentifiers
-        }
     }
 
     private static let knownApps: [TerminalAppDescriptor] = [
@@ -74,11 +47,6 @@ struct TerminalJumpService {
             aliases: ["wezterm"]
         ),
         TerminalAppDescriptor(
-            displayName: "Codex.app",
-            bundleIdentifier: "com.openai.codex",
-            aliases: ["codex.app"]
-        ),
-        TerminalAppDescriptor(
             displayName: "Kaku",
             bundleIdentifier: "fun.tw93.kaku",
             aliases: ["kaku"]
@@ -106,14 +74,7 @@ struct TerminalJumpService {
         TerminalAppDescriptor(
             displayName: "Trae",
             bundleIdentifier: "com.trae.app",
-            aliases: ["trae", "trae cn", "trae-cn", "traecn"],
-            alternateBundleIdentifiers: ["cn.trae.app"],
-            preferredBundleIdentifiersByAlias: [
-                "trae": "com.trae.app",
-                "trae cn": "cn.trae.app",
-                "trae-cn": "cn.trae.app",
-                "traecn": "cn.trae.app",
-            ]
+            aliases: ["trae"]
         ),
         TerminalAppDescriptor(
             displayName: "IntelliJ IDEA",
@@ -176,7 +137,6 @@ struct TerminalJumpService {
         "com.todesktop.230313mzl4w4u92",
         "com.exafunction.windsurf",
         "com.trae.app",
-        "cn.trae.app",
     ]
 
     /// Bundle identifiers of terminal emulators that commonly host Zellij,
@@ -187,34 +147,11 @@ struct TerminalJumpService {
     private static let ghosttyWindowActivationDelay = 0.04
     private static let ghosttyFocusAttempts = 3
 
-    /// Maximum time to wait for Warp to become the system frontmost app after
-    /// an activation request. macOS app activation is async at the WindowServer
-    /// level. Without waiting for `frontmostApplication` to actually be Warp,
-    /// the first few Cmd+Shift+] keystrokes can land on whatever app was
-    /// focused before activation, producing system beeps and never cycling
-    /// Warp tabs. The poll loop exits as soon as Warp becomes frontmost (often
-    /// 50-200ms on Apple Silicon); this constant is the cap. 1.5s tolerates
-    /// machines under load where activation takes longer.
-    private static let warpFrontmostMaxWait = 1.5
-    /// Poll interval inside the frontmost-wait loop. Smaller = lower latency
-    /// once Warp arrives but more SyscallChurn.
-    private static let warpFrontmostPollInterval = 0.025
-    /// How long to wait after each Cmd+Shift+] keystroke before re-reading
-    /// `windows.active_tab_index` from Warp's SQLite. Warp persists the new
-    /// active tab index a few tens of milliseconds after processing the
-    /// keystroke; reading too soon can return stale state and cause the
-    /// cycling loop to terminate at the wrong tab.
-    private static let warpTabCycleSettleDelay = 0.1
-
     private let applicationResolver: ApplicationResolver
     private let appRunningChecker: AppRunningChecker
     private let openAction: OpenAction
     private let appleScriptRunner: AppleScriptRunner
     private let processRunner: ProcessRunner
-    private let warpFocusedPaneReader: WarpFocusedPaneReader
-    private let warpTabCountReader: WarpTabCountReader
-    private let warpKeystroker: KeystrokeInjector
-    private let warpFrontmostChecker: WarpFrontmostChecker
 
     init(
         applicationResolver: @escaping ApplicationResolver = { bundleIdentifier in
@@ -225,27 +162,13 @@ struct TerminalJumpService {
         },
         openAction: @escaping OpenAction = Self.defaultOpenAction(arguments:),
         appleScriptRunner: @escaping AppleScriptRunner = Self.defaultAppleScriptRunner(script:),
-        processRunner: @escaping ProcessRunner = Self.defaultProcessRunner(executable:arguments:),
-        warpFocusedPaneReader: @escaping WarpFocusedPaneReader = { WarpSQLiteReader().currentFocusedPaneUUID() },
-        warpTabCountReader: @escaping WarpTabCountReader = { WarpSQLiteReader().tabCountInActiveWindow() },
-        warpKeystroker: KeystrokeInjector = DefaultKeystrokeInjector(),
-        warpFrontmostChecker: @escaping WarpFrontmostChecker = {
-            // Use NSWorkspace.frontmostApplication (live workspace state)
-            // rather than NSRunningApplication.isActive (a cached property
-            // updated via KVO that can lag the real frontmost transition).
-            NSWorkspace.shared.frontmostApplication?.bundleIdentifier
-                == "dev.warp.Warp-Stable"
-        }
+        processRunner: @escaping ProcessRunner = Self.defaultProcessRunner(executable:arguments:)
     ) {
         self.applicationResolver = applicationResolver
         self.appRunningChecker = appRunningChecker
         self.openAction = openAction
         self.appleScriptRunner = appleScriptRunner
         self.processRunner = processRunner
-        self.warpFocusedPaneReader = warpFocusedPaneReader
-        self.warpTabCountReader = warpTabCountReader
-        self.warpKeystroker = warpKeystroker
-        self.warpFrontmostChecker = warpFrontmostChecker
     }
 
     func jump(to target: JumpTarget) throws -> String {
@@ -288,7 +211,6 @@ struct TerminalJumpService {
             }
         }
 
-        let normalizedPreferredName = normalizeTerminalAppName(target.terminalApp)
         let descriptor = resolveTerminalApp(preferredName: target.terminalApp)
         let hasWorkingDirectory = target.workingDirectory.map { FileManager.default.fileExists(atPath: $0) } ?? false
         let hasPreciseLocator = [target.terminalSessionID, target.terminalTTY].contains {
@@ -297,26 +219,7 @@ struct TerminalJumpService {
             }
             return !value.isEmpty
         }
-        let preferredBundleIdentifier: String?
-        if let descriptor {
-            preferredBundleIdentifier = preferredBundleIdentifierForAlias(
-                for: descriptor,
-                normalizedPreferredName: normalizedPreferredName
-            )
-        } else {
-            preferredBundleIdentifier = nil
-        }
-
-        let resolvedBundleIdentifier: String?
-        if let descriptor {
-            resolvedBundleIdentifier = resolveBundleIdentifier(
-                for: descriptor,
-                preferredBundleIdentifier: preferredBundleIdentifier
-            )
-        } else {
-            resolvedBundleIdentifier = nil
-        }
-        let appIsRunning = resolvedBundleIdentifier.map(appRunningChecker) ?? false
+        let appIsRunning = descriptor.map { appRunningChecker($0.bundleIdentifier) } ?? false
 
         // Zellij is a terminal multiplexer, not a macOS .app. Handle it
         // before the descriptor-based dispatch since it won't have one.
@@ -333,17 +236,7 @@ struct TerminalJumpService {
         }
 
         if let descriptor {
-            switch resolvedBundleIdentifier ?? descriptor.bundleIdentifier {
-            case "com.openai.codex":
-                // If we have a thread ID, use the codex:// URL scheme to
-                // open the specific conversation directly.  Otherwise just
-                // activate the app.
-                if let threadID = target.codexThreadID, !threadID.isEmpty {
-                    try openAction(["codex://threads/\(threadID)"])
-                    return "Focused the Codex.app conversation."
-                }
-                try openAction(["-b", "com.openai.codex"])
-                return "Activated Codex.app."
+            switch descriptor.bundleIdentifier {
             case "com.googlecode.iterm2":
                 if try jumpToITermSession(target) {
                     return "Focused the matching iTerm session."
@@ -360,34 +253,32 @@ struct TerminalJumpService {
                 if try jumpToTerminalTab(target) {
                     return "Focused the matching Terminal tab."
                 }
-            case "dev.warp.Warp-Stable":
-                return try jumpToWarpPane(target)
             case "fun.tw93.kaku", "com.github.wez.wezterm":
                 if let cliPath = weztermFamilyCLIPath(for: descriptor.bundleIdentifier),
                    jumpToWeztermFamilyTerminal(target, cliPath: cliPath, bundleIdentifier: descriptor.bundleIdentifier) {
                     return "Focused the matching \(descriptor.displayName) pane."
                 }
             case let id where Self.vscodeFamilyBundleIDs.contains(id):
+                if appIsRunning {
+                    try openAction(["-b", descriptor.bundleIdentifier])
+                    return "Activated \(descriptor.displayName)."
+                }
                 if let workingDirectory = target.workingDirectory {
                     let opened = jumpToVSCodeFamilyWorkspace(workingDirectory, bundleIdentifier: id)
-                    if opened {
-                        return "Focused the matching \(descriptor.displayName) workspace."
-                    }
-                }
-                if appIsRunning {
-                    try openAction(["-b", id])
-                    return "Activated \(descriptor.displayName)."
+                    return opened
+                        ? "Focused the matching \(descriptor.displayName) workspace."
+                        : "Focused the matching \(descriptor.displayName) workspace. The CLI may not be available."
                 }
             case let id where Self.jetbrainsBundleIDs.contains(id):
+                if appIsRunning {
+                    try openAction(["-b", descriptor.bundleIdentifier])
+                    return "Activated \(descriptor.displayName)."
+                }
                 if let workingDirectory = target.workingDirectory {
                     let opened = jumpToJetBrainsProject(workingDirectory, bundleIdentifier: id)
-                    if opened {
-                        return "Focused the matching \(descriptor.displayName) project."
-                    }
-                }
-                if appIsRunning {
-                    try openAction(["-b", id])
-                    return "Activated \(descriptor.displayName)."
+                    return opened
+                        ? "Focused the matching \(descriptor.displayName) project."
+                        : "Focused the matching \(descriptor.displayName) project. The CLI may not be available."
                 }
             default:
                 break
@@ -395,17 +286,17 @@ struct TerminalJumpService {
         }
 
         if let descriptor, hasPreciseLocator, appIsRunning {
-            try openAction(["-b", resolvedBundleIdentifier ?? descriptor.bundleIdentifier])
+            try openAction(["-b", descriptor.bundleIdentifier])
             return "Activated \(descriptor.displayName). Exact pane targeting could not find the live terminal."
         }
 
         if let descriptor, hasWorkingDirectory, let workingDirectory = target.workingDirectory {
-            try openAction(["-b", resolvedBundleIdentifier ?? descriptor.bundleIdentifier, workingDirectory])
+            try openAction(["-b", descriptor.bundleIdentifier, workingDirectory])
             return "Opened \(target.workspaceName) in \(descriptor.displayName). Exact pane targeting is still best-effort."
         }
 
         if let descriptor {
-            try openAction(["-b", resolvedBundleIdentifier ?? descriptor.bundleIdentifier])
+            try openAction(["-b", descriptor.bundleIdentifier])
             return "Activated \(descriptor.displayName). Exact pane targeting is still best-effort."
         }
 
@@ -457,7 +348,6 @@ struct TerminalJumpService {
         "com.todesktop.230313mzl4w4u92": "cursor",
         "com.exafunction.windsurf": "windsurf",
         "com.trae.app": "trae",
-        "cn.trae.app": "trae",
     ]
 
     private func jumpToVSCodeFamilyWorkspace(_ workspacePath: String, bundleIdentifier: String) -> Bool {
@@ -1108,68 +998,10 @@ struct TerminalJumpService {
         }
     }
 
-    private func jumpToWarpPane(_ target: JumpTarget) throws -> String {
-        // 1. Always activate Warp first — this is the baseline behavior.
-        //    `warpKeystroker.sendCmdShiftRightBracket()` also activates via
-        //    AppleScript, but running `open -b` here ensures Warp is foreground
-        //    even in the early-return branch below where no AppleScript ever
-        //    fires.
-        try openAction(["-b", "dev.warp.Warp-Stable"])
-
-        // 2. If we don't have a mapped pane UUID, we're done. This happens
-        //    when WarpSQLiteReader couldn't resolve the agent's cwd to a
-        //    pane — usually because the user launched the agent through a
-        //    compound command (e.g. `cd /tmp/foo && claude`) that bypassed
-        //    Warp's shell-integration prompt render, so terminal_panes.cwd
-        //    was never updated for that pane. See the "known limitation"
-        //    note in WarpSQLiteReader.lookupPaneUUID for the full story.
-        guard let targetPaneUUID = target.warpPaneUUID else {
-            return "Activated Warp. No precise pane mapping available."
-        }
-
-        // 3. Wait for Warp to actually become the foreground app. `open -b`
-        //    exits immediately but the WindowServer activation is async and
-        //    can take 50-300ms depending on machine load. We poll
-        //    `frontmostApplication` until Warp is really frontmost or we
-        //    hit the cap.
-        let frontmostStart = Date()
-        while !warpFrontmostChecker() {
-            if Date().timeIntervalSince(frontmostStart) >= Self.warpFrontmostMaxWait {
-                break
-            }
-            Thread.sleep(forTimeInterval: Self.warpFrontmostPollInterval)
-        }
-
-        // 4. Fast path: if Warp is already showing the target pane we're
-        //    done — no tab-advance needed.
-        if warpFocusedPaneReader() == targetPaneUUID {
-            return "Focused the matching Warp tab."
-        }
-
-        // 5. Cycle via repeated "Switch to Next Tab" clicks with a cap. We
-        //    only need at most tabCount-1 cycles to reach any tab from any
-        //    starting point, but +2 is safety margin for counting quirks
-        //    and the rare case where active_tab_index is briefly stale
-        //    between a click and the next SQLite read. The `KeystrokeInjector`
-        //    protocol name is historical; the production implementation
-        //    clicks the `Tab ▸ Switch to Next Tab` menu item via AX —
-        //    see `DefaultKeystrokeInjector` for the rationale.
-        let tabCount = max(1, warpTabCountReader())
-        let maxAttempts = tabCount + 2
-
-        for _ in 0..<maxAttempts {
-            warpKeystroker.sendCmdShiftRightBracket()
-            Thread.sleep(forTimeInterval: Self.warpTabCycleSettleDelay)
-            if warpFocusedPaneReader() == targetPaneUUID {
-                return "Focused the matching Warp tab."
-            }
-        }
-
-        return "Activated Warp but could not confirm precision focus."
-    }
-
     private func resolveTerminalApp(preferredName: String) -> TerminalAppDescriptor? {
-        let normalized = normalizeTerminalAppName(preferredName)
+        let normalized = preferredName
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
 
         // "Unknown" is the hook-side sentinel meaning "we could not classify this
         // terminal". Returning nil here lets jump() fall through to the Finder
@@ -1186,49 +1018,11 @@ struct TerminalJumpService {
             return exact
         }
 
-        return Self.knownApps.first(where: isInstalled(descriptor:))
+        return Self.knownApps.first(where: { isInstalled(bundleIdentifier: $0.bundleIdentifier) })
     }
 
-    private func normalizeTerminalAppName(_ preferredName: String) -> String {
-        preferredName
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .lowercased()
-    }
-
-    private func isInstalled(descriptor: TerminalAppDescriptor) -> Bool {
-        descriptor.allBundleIdentifiers.contains { applicationResolver($0) != nil }
-    }
-
-    private func preferredBundleIdentifierForAlias(
-        for descriptor: TerminalAppDescriptor,
-        normalizedPreferredName: String
-    ) -> String? {
-        if let aliasSpecific = descriptor.preferredBundleIdentifiersByAlias[normalizedPreferredName] {
-            return aliasSpecific
-        }
-        if descriptor.displayName.lowercased() == normalizedPreferredName {
-            return descriptor.bundleIdentifier
-        }
-        return nil
-    }
-
-    private func resolveBundleIdentifier(
-        for descriptor: TerminalAppDescriptor,
-        preferredBundleIdentifier: String?
-    ) -> String {
-        if let preferredBundleIdentifier, appRunningChecker(preferredBundleIdentifier) {
-            return preferredBundleIdentifier
-        }
-        if let preferredBundleIdentifier, applicationResolver(preferredBundleIdentifier) != nil {
-            return preferredBundleIdentifier
-        }
-        if let running = descriptor.allBundleIdentifiers.first(where: appRunningChecker) {
-            return running
-        }
-        if let installed = descriptor.allBundleIdentifiers.first(where: { applicationResolver($0) != nil }) {
-            return installed
-        }
-        return preferredBundleIdentifier ?? descriptor.bundleIdentifier
+    private func isInstalled(bundleIdentifier: String) -> Bool {
+        applicationResolver(bundleIdentifier) != nil
     }
 
     private func runAppleScript(_ script: String) throws -> String {

@@ -10,7 +10,6 @@ public enum AgentTool: String, CaseIterable, Codable, Sendable {
     case factory
     case codebuddy
     case cursor
-    case kimiCLI
 
     public var displayName: String {
         switch self {
@@ -32,8 +31,6 @@ public enum AgentTool: String, CaseIterable, Codable, Sendable {
             "CodeBuddy"
         case .cursor:
             "Cursor"
-        case .kimiCLI:
-            "Kimi CLI"
         }
     }
 
@@ -57,14 +54,12 @@ public enum AgentTool: String, CaseIterable, Codable, Sendable {
             "CODEBUDDY"
         case .cursor:
             "CURSOR"
-        case .kimiCLI:
-            "KIMI"
         }
     }
 
     public var isClaudeCodeFork: Bool {
         switch self {
-        case .claudeCode, .qoder, .qwenCode, .factory, .codebuddy, .kimiCLI:
+        case .claudeCode, .qoder, .qwenCode, .factory, .codebuddy:
             true
         default:
             false
@@ -87,7 +82,7 @@ public enum SessionAttachmentState: String, Codable, Sendable {
     }
 }
 
-public enum SessionPhase: String, Codable, Sendable, CaseIterable {
+public enum SessionPhase: String, Codable, Sendable {
     case running
     case waitingForApproval
     case waitingForAnswer
@@ -125,11 +120,6 @@ public struct JumpTarget: Equatable, Codable, Sendable {
     public var terminalTTY: String?
     public var tmuxTarget: String?
     public var tmuxSocketPath: String?
-    public var warpPaneUUID: String?
-    /// Codex.app thread/conversation ID.  When set and `terminalApp` is
-    /// `"Codex.app"`, the jump uses the `codex://threads/<id>` URL scheme
-    /// to open the conversation directly rather than just activating the app.
-    public var codexThreadID: String?
 
     public init(
         terminalApp: String,
@@ -139,9 +129,7 @@ public struct JumpTarget: Equatable, Codable, Sendable {
         terminalSessionID: String? = nil,
         terminalTTY: String? = nil,
         tmuxTarget: String? = nil,
-        tmuxSocketPath: String? = nil,
-        warpPaneUUID: String? = nil,
-        codexThreadID: String? = nil
+        tmuxSocketPath: String? = nil
     ) {
         self.terminalApp = terminalApp
         self.workspaceName = workspaceName
@@ -151,8 +139,6 @@ public struct JumpTarget: Equatable, Codable, Sendable {
         self.terminalTTY = terminalTTY
         self.tmuxTarget = tmuxTarget
         self.tmuxSocketPath = tmuxSocketPath
-        self.warpPaneUUID = warpPaneUUID
-        self.codexThreadID = codexThreadID
     }
 }
 
@@ -166,7 +152,6 @@ public struct PermissionRequest: Equatable, Identifiable, Codable, Sendable {
     public var toolName: String?
     public var toolUseID: String?
     public var suggestedUpdates: [ClaudePermissionUpdate]
-    public var requiresTerminalApproval: Bool
 
     public init(
         id: UUID = UUID(),
@@ -177,8 +162,7 @@ public struct PermissionRequest: Equatable, Identifiable, Codable, Sendable {
         secondaryActionTitle: String = "Deny",
         toolName: String? = nil,
         toolUseID: String? = nil,
-        suggestedUpdates: [ClaudePermissionUpdate] = [],
-        requiresTerminalApproval: Bool = false
+        suggestedUpdates: [ClaudePermissionUpdate] = []
     ) {
         self.id = id
         self.title = title
@@ -189,18 +173,14 @@ public struct PermissionRequest: Equatable, Identifiable, Codable, Sendable {
         self.toolName = toolName
         self.toolUseID = toolUseID
         self.suggestedUpdates = suggestedUpdates
-        self.requiresTerminalApproval = requiresTerminalApproval
     }
 }
 
-/// A single selectable option within a structured question prompt.
-public struct QuestionOption: Equatable, Identifiable, Codable, Sendable {
-    public var id: UUID
+public struct QuestionOption: Equatable, Codable, Sendable {
     public var label: String
     public var description: String
 
-    public init(id: UUID = UUID(), label: String, description: String = "") {
-        self.id = id
+    public init(label: String, description: String = "") {
         self.label = label
         self.description = description
     }
@@ -339,7 +319,6 @@ public struct AgentSession: Equatable, Identifiable, Codable, Sendable {
     public var jumpTarget: JumpTarget?
     public var codexMetadata: CodexSessionMetadata?
     public var claudeMetadata: ClaudeSessionMetadata?
-    public var geminiMetadata: GeminiSessionMetadata?
     public var openCodeMetadata: OpenCodeSessionMetadata?
     public var cursorMetadata: CursorSessionMetadata?
 
@@ -350,12 +329,6 @@ public struct AgentSession: Equatable, Identifiable, Codable, Sendable {
     /// process polling. When `true`, visibility is determined by hook signals
     /// (`SessionStart` / `SessionEnd`) instead of `ps`/`lsof` process discovery.
     public var isHookManaged: Bool = false
-
-    /// Whether this Codex session originates from the Codex desktop app
-    /// rather than the Codex CLI.  When `true`, liveness is determined by
-    /// whether Codex.app is running (`NSRunningApplication`), not by
-    /// matching individual CLI subprocess PIDs.
-    public var isCodexAppSession: Bool = false
 
     /// Whether the agent session has ended (received `SessionEnd` hook).
     /// Only meaningful for hook-managed sessions.
@@ -384,7 +357,6 @@ public struct AgentSession: Equatable, Identifiable, Codable, Sendable {
         jumpTarget: JumpTarget? = nil,
         codexMetadata: CodexSessionMetadata? = nil,
         claudeMetadata: ClaudeSessionMetadata? = nil,
-        geminiMetadata: GeminiSessionMetadata? = nil,
         openCodeMetadata: OpenCodeSessionMetadata? = nil,
         cursorMetadata: CursorSessionMetadata? = nil
     ) {
@@ -401,7 +373,6 @@ public struct AgentSession: Equatable, Identifiable, Codable, Sendable {
         self.jumpTarget = jumpTarget
         self.codexMetadata = codexMetadata
         self.claudeMetadata = claudeMetadata
-        self.geminiMetadata = geminiMetadata
         self.openCodeMetadata = openCodeMetadata
         self.cursorMetadata = cursorMetadata
     }
@@ -420,7 +391,6 @@ public struct AgentSession: Equatable, Identifiable, Codable, Sendable {
         case jumpTarget
         case codexMetadata
         case claudeMetadata
-        case geminiMetadata
         case openCodeMetadata
         case cursorMetadata
     }
@@ -440,7 +410,6 @@ public struct AgentSession: Equatable, Identifiable, Codable, Sendable {
         jumpTarget = try container.decodeIfPresent(JumpTarget.self, forKey: .jumpTarget)
         codexMetadata = try container.decodeIfPresent(CodexSessionMetadata.self, forKey: .codexMetadata)
         claudeMetadata = try container.decodeIfPresent(ClaudeSessionMetadata.self, forKey: .claudeMetadata)
-        geminiMetadata = try container.decodeIfPresent(GeminiSessionMetadata.self, forKey: .geminiMetadata)
         openCodeMetadata = try container.decodeIfPresent(OpenCodeSessionMetadata.self, forKey: .openCodeMetadata)
         cursorMetadata = try container.decodeIfPresent(CursorSessionMetadata.self, forKey: .cursorMetadata)
     }
@@ -460,7 +429,6 @@ public struct AgentSession: Equatable, Identifiable, Codable, Sendable {
         try container.encodeIfPresent(jumpTarget, forKey: .jumpTarget)
         try container.encodeIfPresent(codexMetadata, forKey: .codexMetadata)
         try container.encodeIfPresent(claudeMetadata, forKey: .claudeMetadata)
-        try container.encodeIfPresent(geminiMetadata, forKey: .geminiMetadata)
         try container.encodeIfPresent(openCodeMetadata, forKey: .openCodeMetadata)
         try container.encodeIfPresent(cursorMetadata, forKey: .cursorMetadata)
     }
@@ -472,7 +440,7 @@ public extension AgentSession {
     }
 
     var isTrackedLiveSession: Bool {
-        !isDemoSession && (tool == .codex || tool == .claudeCode || tool == .geminiCLI || tool == .openCode || tool == .qoder || tool == .qwenCode || tool == .factory || tool == .codebuddy || tool == .cursor || tool == .kimiCLI)
+        !isDemoSession && (tool == .codex || tool == .claudeCode || tool == .openCode || tool == .qoder || tool == .qwenCode || tool == .factory || tool == .codebuddy || tool == .cursor)
     }
 
     var isTrackedLiveCodexSession: Bool {
@@ -489,10 +457,6 @@ public extension AgentSession {
     var isVisibleInIsland: Bool {
         if isDemoSession { return true }
         if phase.requiresAttention { return true }
-        // Codex.app sessions stay visible while the desktop app is running.
-        // Checked before isHookManaged because a Codex.app session may also
-        // be hook-managed (when both hook and rediscovery converge on it).
-        if isCodexAppSession { return isProcessAlive }
         if isHookManaged { return !isSessionEnded }
         if isProcessAlive { return true }
         return false
@@ -503,196 +467,22 @@ public extension AgentSession {
     }
 
     var lastAssistantMessageText: String? {
-        codexMetadata?.lastAssistantMessage ?? claudeMetadata?.lastAssistantMessage ?? geminiMetadata?.lastAssistantMessage ?? openCodeMetadata?.lastAssistantMessage ?? cursorMetadata?.lastAssistantMessage
-    }
-
-    var completionAssistantMessageText: String? {
-        if let gemini = geminiMetadata {
-            if let body = gemini.lastAssistantMessageBody?
-                .trimmingCharacters(in: .whitespacesAndNewlines),
-               !body.isEmpty {
-                if let extractedBody = Self.extractGeminiCompletionBody(from: body) {
-                    return extractedBody
-                }
-            }
-            return gemini.lastAssistantMessage
-        }
-        return lastAssistantMessageText
+        codexMetadata?.lastAssistantMessage ?? claudeMetadata?.lastAssistantMessage ?? openCodeMetadata?.lastAssistantMessage ?? cursorMetadata?.lastAssistantMessage
     }
 
     var trackingTranscriptPath: String? {
-        codexMetadata?.transcriptPath ?? claudeMetadata?.transcriptPath ?? geminiMetadata?.transcriptPath
+        codexMetadata?.transcriptPath ?? claudeMetadata?.transcriptPath
     }
 
     var latestUserPromptText: String? {
-        codexMetadata?.lastUserPrompt ?? claudeMetadata?.lastUserPrompt ?? geminiMetadata?.lastUserPrompt ?? openCodeMetadata?.lastUserPrompt ?? cursorMetadata?.lastUserPrompt
+        codexMetadata?.lastUserPrompt ?? claudeMetadata?.lastUserPrompt ?? openCodeMetadata?.lastUserPrompt ?? cursorMetadata?.lastUserPrompt
     }
 
     var initialUserPromptText: String? {
-        codexMetadata?.initialUserPrompt ?? claudeMetadata?.initialUserPrompt ?? geminiMetadata?.initialUserPrompt ?? openCodeMetadata?.initialUserPrompt ?? cursorMetadata?.initialUserPrompt
+        codexMetadata?.initialUserPrompt ?? claudeMetadata?.initialUserPrompt ?? openCodeMetadata?.initialUserPrompt ?? cursorMetadata?.initialUserPrompt
     }
 
     var currentCommandPreviewText: String? {
         codexMetadata?.currentCommandPreview ?? claudeMetadata?.currentToolInputPreview ?? openCodeMetadata?.currentToolInputPreview ?? cursorMetadata?.currentToolInputPreview
-    }
-}
-
-private extension AgentSession {
-    static func extractGeminiCompletionBody(from body: String) -> String? {
-        let normalizedBody = normalizeGeminiBlankLines(in: body)
-            .replacingOccurrences(of: "\n{3,}", with: "\n\n\n", options: .regularExpression)
-
-        let segments = normalizedBody
-            .components(separatedBy: "\n\n\n")
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty }
-
-        guard let lastSegment = segments.last else {
-            return nil
-        }
-
-        // Gemini hook payloads sometimes append a duplicate copy of the final
-        // answer, often with only whitespace differences. Deduplicate against a
-        // whitespace-compacted view of the text, but preserve the original
-        // formatting in the string we return to the UI.
-        let deduplicatedSegment = removeRepeatedTrailingGeminiContent(from: lastSegment)
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        return deduplicatedSegment.isEmpty ? nil : deduplicatedSegment
-    }
-
-    static func normalizeGeminiBlankLines(in text: String) -> String {
-        text
-            .replacingOccurrences(of: "\r\n", with: "\n")
-            .replacingOccurrences(of: "\r", with: "\n")
-            .components(separatedBy: "\n")
-            .map { line in
-                line.trimmingCharacters(in: .whitespaces).isEmpty ? "" : line
-            }
-            .joined(separator: "\n")
-    }
-
-    static func removeRepeatedTrailingGeminiContent(from text: String) -> String {
-        let compacted = compactedGeminiText(text)
-        let minimumRepeatedTailLength = 30
-
-        guard compacted.characters.count >= minimumRepeatedTailLength * 2 else {
-            return text
-        }
-
-        let maximumTailLength = compacted.characters.count / 2
-        guard maximumTailLength >= minimumRepeatedTailLength else {
-            return text
-        }
-
-        guard let repeatedTailStart = longestRepeatedGeminiTailStart(
-            in: compacted.characters,
-            minimumLength: minimumRepeatedTailLength
-        ) else {
-            return text
-        }
-
-        let originalTailStart = compacted.originalIndices[repeatedTailStart]
-        let adjustedTailStart = adjustedGeminiDuplicateBoundary(in: text, from: originalTailStart)
-        return String(text[..<adjustedTailStart]).trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-
-    static func compactedGeminiText(_ text: String) -> (characters: [Character], originalIndices: [String.Index]) {
-        var characters: [Character] = []
-        var originalIndices: [String.Index] = []
-
-        for index in text.indices {
-            let character = text[index]
-            if character.isWhitespace {
-                continue
-            }
-            characters.append(character)
-            originalIndices.append(index)
-        }
-
-        return (characters, originalIndices)
-    }
-
-    static func longestRepeatedGeminiTailStart(
-        in characters: [Character],
-        minimumLength: Int
-    ) -> Int? {
-        let count = characters.count
-        guard count >= minimumLength * 2 else {
-            return nil
-        }
-
-        for length in stride(from: count / 2, through: minimumLength, by: -1) {
-            let tailStart = count - length
-            let tail = Array(characters[tailStart...])
-
-            if tailStart < length {
-                continue
-            }
-
-            for candidateStart in 0...(tailStart - length) {
-                let candidateEnd = candidateStart + length
-                if Array(characters[candidateStart..<candidateEnd]) == tail {
-                    return tailStart
-                }
-            }
-        }
-
-        return nil
-    }
-
-    static func adjustedGeminiDuplicateBoundary(in text: String, from index: String.Index) -> String.Index {
-        var boundary = index
-
-        while boundary > text.startIndex {
-            let previous = text.index(before: boundary)
-            if text[previous].isWhitespace {
-                boundary = previous
-                continue
-            }
-            break
-        }
-
-        var searchIndex = boundary
-        while searchIndex > text.startIndex {
-            let candidate = text.index(before: searchIndex)
-            if text[candidate] != "\n" {
-                searchIndex = candidate
-                continue
-            }
-
-            var newlineCount = 1
-            var probe = candidate
-            while probe > text.startIndex {
-                let previous = text.index(before: probe)
-                if text[previous] == "\n" {
-                    newlineCount += 1
-                    probe = previous
-                    continue
-                }
-                if text[previous].isWhitespace {
-                    probe = previous
-                    continue
-                }
-                break
-            }
-
-            if newlineCount >= 2 {
-                let fragment = text[searchIndex..<index]
-                let compactedFragmentCount = fragment.reduce(into: 0) { count, character in
-                    if !character.isWhitespace {
-                        count += 1
-                    }
-                }
-
-                if compactedFragmentCount <= 12 {
-                    return searchIndex
-                }
-                return boundary
-            }
-
-            searchIndex = candidate
-        }
-
-        return boundary
     }
 }

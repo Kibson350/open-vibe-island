@@ -119,26 +119,6 @@ fi
 # Remove stale symlinks from previous runs.
 [ -L "$root_bundle" ] && rm -f "$root_bundle"
 
-# Detect a local stable signing identity so the dev bundle's cdhash
-# stays stable across rebuilds and macOS TCC grants (Accessibility,
-# Automation) persist. Without it we fall back to ad-hoc signing, which
-# changes the cdhash every build and silently invalidates any TCC
-# grants the developer had approved — extremely disruptive when
-# iterating on features that need AX permission. See
-# scripts/setup-dev-signing.sh for a one-time setup that creates this
-# identity locally with zero Apple Developer Program involvement.
-sign_identity="-"
-if security find-identity -p codesigning -v "$HOME/Library/Keychains/login.keychain-db" 2>/dev/null \
-       | grep -q '"Open Island Dev Local"'; then
-    sign_identity="Open Island Dev Local"
-else
-    echo
-    echo "⚠ Using ad-hoc signing. macOS TCC grants (Accessibility, Automation)"
-    echo "  will be invalidated on every rebuild. Run once to fix:"
-    echo "    zsh scripts/setup-dev-signing.sh"
-    echo
-fi
-
-codesign --force --deep --sign "$sign_identity" "$bundle_dir" 2>/dev/null || true
+codesign --force --deep --sign - "$bundle_dir" 2>/dev/null || true
 
 open -na "$bundle_dir"

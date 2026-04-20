@@ -119,6 +119,43 @@ extension AgentSession {
         jumpTarget?.terminalApp
     }
 
+    /// Orange model badge for Claude Code family sessions.
+    /// Returns "Opus 4.6", "Sonnet 4.6", etc. when the model is known;
+    /// returns "Claude" as a generic fallback so "Terminal" never appears.
+    var spotlightModelBadge: String? {
+        guard tool.isClaudeCodeFork else { return nil }
+
+        guard let rawModel = claudeMetadata?.model, !rawModel.isEmpty else {
+            return "Claude"
+        }
+
+        let lower = rawModel.lowercased()
+
+        // Identify family
+        let family: String
+        if lower.contains("opus") { family = "Opus" }
+        else if lower.contains("sonnet") { family = "Sonnet" }
+        else if lower.contains("haiku") { family = "Haiku" }
+        else {
+            let stripped = lower.hasPrefix("claude-") ? String(lower.dropFirst(7)) : lower
+            return stripped.split(separator: "-").prefix(2).map(String.init).joined(separator: " ").capitalized
+        }
+
+        // Extract first N.N version pattern (e.g. "4-6" → "4.6")
+        let pattern = #"(\d+)-(\d+)"#
+        let shortName: String
+        if let regex = try? NSRegularExpression(pattern: pattern),
+           let match = regex.firstMatch(in: lower, range: NSRange(lower.startIndex..., in: lower)),
+           let r1 = Range(match.range(at: 1), in: lower),
+           let r2 = Range(match.range(at: 2), in: lower) {
+            shortName = "\(family) \(lower[r1]).\(lower[r2])"
+        } else {
+            shortName = family
+        }
+
+        return shortName
+    }
+
     var spotlightWorkspaceName: String {
         if let workspaceName = jumpTarget?.workspaceName.trimmedForSurface,
            !workspaceName.isEmpty {
@@ -148,17 +185,42 @@ extension AgentSession {
     }
 
     var spotlightHeadlineText: String {
-        var headline = spotlightWorkspaceName
+        // Priority 1: terminal pane title — exactly what the user sees in the tab
+        //             (e.g. "Claude Code -- sourcekit-lsp"). This is the ground truth:
+        //             it can't be wrong because it comes from the actual terminal.
+        //             Skip auto-generated "Claude XXXXXXXX" placeholders.
+        // Priority 2: initial user prompt — descriptive once hooks fire, but can be
+        //             wrong when sessions from the same CWD are mismatched in the registry.
+        // Priority 3: workspace name — last CWD component (last resort).
+        let base: String
+        if let pane = meaningfulPaneTitle {
+            base = pane
+        } else if let prompt = initialPromptText, !prompt.isEmpty {
+            base = prompt
+        } else {
+            base = spotlightWorkspaceName
+        }
 
         if let branch = spotlightWorktreeBranch {
-            headline += " (\(branch))"
+            return "\(base) (\(branch))"
         }
 
-        guard let prompt = spotlightHeadlinePromptText else {
-            return headline
-        }
+        return base
+    }
 
-        return "\(headline) · \(prompt)"
+    /// Returns the pane title when it is a user-meaningful label.
+    /// Filters out the auto-generated "Claude XXXXXXXX" placeholder (7 + 8 hex chars = 15)
+    /// that transcript discovery creates before real terminal info is available.
+    private var meaningfulPaneTitle: String? {
+        guard let pane = jumpTarget?.paneTitle.trimmedForSurface,
+              !pane.isEmpty else { return nil }
+        // "Claude " (7) + 8-char UUID prefix (always hex) = exactly 15 chars
+        if pane.count == 15,
+           pane.hasPrefix("Claude "),
+           pane.dropFirst(7).allSatisfy({ $0.isHexDigit }) {
+            return nil
+        }
+        return pane
     }
 
     var spotlightHeadlinePromptText: String? {

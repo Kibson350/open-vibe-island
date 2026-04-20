@@ -1,14 +1,14 @@
 # Hook System
 
-OpenIsland receives hook events from AI agents (Codex / Claude Code / Gemini CLI) via the `OpenIslandHooks` CLI. The CLI forwards payloads to the app over a Unix socket and, when necessary, writes a directive back to stdout so the agent can act on it (e.g. block a tool call).
+OpenIsland receives hook events from AI agents (Codex / Claude Code) via the `OpenIslandHooks` CLI. The CLI forwards payloads to the app over a Unix socket and, when necessary, writes a directive back to stdout so the agent can act on it (e.g. block a tool call).
 
 ## Architecture
 
 ```
-Agent (Codex / Claude Code / Gemini CLI)
+Agent (Codex / Claude Code)
   │  stdin: JSON payload
   ▼
-OpenIslandHooks CLI  (--source codex | --source claude | --source gemini)
+OpenIslandHooks CLI  (--source codex | --source claude)
   │  Unix socket
   ▼
 BridgeServer → AppModel → UI
@@ -198,59 +198,6 @@ Setting `interrupt: true` terminates the current agent turn immediately.
 
 ---
 
-## Gemini CLI Hooks (`--source gemini`)
-
-**Payload type**: `GeminiHookPayload`  
-**Source**: [`Sources/OpenIslandCore/GeminiHooks.swift`](../Sources/OpenIslandCore/GeminiHooks.swift)
-
-### Events
-
-| `hook_event_name` | When it fires | Current OpenIsland behavior |
-|---|---|---|
-| `SessionStart` | Session starts or resumes | Creates or restores the Gemini session, title, jump target, and transcript metadata |
-| `BeforeAgent` | Gemini starts handling a prompt / turn | Marks the session running, updates prompt text, refreshes terminal metadata |
-| `AfterAgent` | Gemini finishes a turn | Marks the turn completed and emits a completion card |
-| `SessionEnd` | Gemini reports the session ended | Marks the hook-managed session ended and removes it from active visibility |
-| `Notification` | Gemini emits a notification message | Updates the session summary / activity text without blocking the agent |
-
-### Common payload fields
-
-| JSON key | Swift property | Description |
-|---|---|---|
-| `cwd` | `cwd` | Working directory |
-| `hook_event_name` | `hookEventName` | Event type |
-| `session_id` | `sessionID` | Session identifier |
-| `transcript_path` | `transcriptPath` | Gemini transcript file path |
-| `timestamp` | `timestamp` | Hook timestamp |
-| `prompt` | `prompt` | User prompt text |
-| `prompt_response` | `promptResponse` | Gemini response text |
-| `source` | `source` | Session start source |
-| `reason` | `reason` | Session-end reason |
-| `notification_type` | `notificationType` | Notification category |
-| `message` | `message` | Notification message |
-| `details` | `details` | Structured notification payload |
-| `stop_hook_active` | `stopHookActive` | Whether Gemini stop hook support is active |
-| `terminal_app` | `terminalApp` | Terminal name |
-| `terminal_session_id` | `terminalSessionID` | Terminal session identifier |
-| `terminal_tty` | `terminalTTY` | TTY device path |
-| `terminal_title` | `terminalTitle` | Tab / window title |
-
-### Current feature coverage
-
-- Session lifecycle ingestion for Gemini CLI via `OpenIslandHooks --source gemini`
-- Session list and island visibility updates from Gemini hook events
-- Prompt / response metadata capture for completion cards and session details
-- Terminal jump metadata enrichment for Terminal.app, iTerm2, Ghostty, and other supported terminals
-- Process-assisted liveness matching so active Gemini CLI sessions can stay visible even when hook traffic is sparse
-
-### Current limitations
-
-- Gemini hooks are currently treated as fire-and-forget. OpenIsland does not send Gemini-specific approval or modification directives back to stdout.
-- Gemini hook payloads sometimes include a duplicated copy of the final response body, often with whitespace-only differences. OpenIsland applies a best-effort compatibility pass before rendering completion content, but the result is not guaranteed to be perfect for every response shape.
-- Gemini support is currently limited to the hook events and UI/session behaviors listed above. It does not yet match the richer permission / interaction flows available for Claude Code or OpenCode.
-
----
-
 ## Timeout Policy
 
 | Source | Event | Timeout |
@@ -258,7 +205,6 @@ Setting `interrupt: true` terminates the current agent turn immediately.
 | Codex | All events | Bridge default |
 | Claude Code | `PermissionRequest` | **24 hours** (awaits human approval) |
 | Claude Code | All other events | **45 seconds** |
-| Gemini CLI | All events | Bridge default |
 
 ---
 
@@ -283,9 +229,8 @@ For iTerm, Terminal, and Ghostty the process additionally runs an AppleScript qu
 
 | File | Responsibility |
 |---|---|
-| [`Sources/OpenIslandHooks/main.swift`](../Sources/OpenIslandHooks/main.swift) | Hook CLI entry point — routes to Codex, Claude, or Gemini path |
+| [`Sources/OpenIslandHooks/main.swift`](../Sources/OpenIslandHooks/main.swift) | Hook CLI entry point — routes to Codex or Claude path |
 | [`Sources/OpenIslandCore/CodexHooks.swift`](../Sources/OpenIslandCore/CodexHooks.swift) | Codex payload model, output encoder, terminal detection |
 | [`Sources/OpenIslandCore/ClaudeHooks.swift`](../Sources/OpenIslandCore/ClaudeHooks.swift) | Claude Code payload model, directive types, output encoder |
-| [`Sources/OpenIslandCore/GeminiHooks.swift`](../Sources/OpenIslandCore/GeminiHooks.swift) | Gemini CLI payload model, terminal detection, metadata helpers |
 | [`Sources/OpenIslandCore/BridgeServer.swift`](../Sources/OpenIslandCore/BridgeServer.swift) | Unix socket server — handles incoming hook payloads |
 | [`Sources/OpenIslandCore/BridgeTransport.swift`](../Sources/OpenIslandCore/BridgeTransport.swift) | Protocol codec and envelope types |

@@ -84,10 +84,6 @@ public struct CodexHookPayload: Equatable, Codable, Sendable {
     public var terminalSessionID: String?
     public var terminalTTY: String?
     public var terminalTitle: String?
-    /// Warp-specific per-pane identifier discovered via Warp's SQLite state
-    /// at hook runtime. Not sent over the wire by the hook script — populated
-    /// in `withRuntimeContext` and serialized through the bridge.
-    public var warpPaneUUID: String?
     public var transcriptPath: String?
     public var source: String?
     public var turnID: String?
@@ -109,7 +105,6 @@ public struct CodexHookPayload: Equatable, Codable, Sendable {
         case terminalSessionID = "terminal_session_id"
         case terminalTTY = "terminal_tty"
         case terminalTitle = "terminal_title"
-        case warpPaneUUID = "warp_pane_uuid"
         case transcriptPath = "transcript_path"
         case source
         case turnID = "turn_id"
@@ -132,7 +127,6 @@ public struct CodexHookPayload: Equatable, Codable, Sendable {
         terminalSessionID: String? = nil,
         terminalTTY: String? = nil,
         terminalTitle: String? = nil,
-        warpPaneUUID: String? = nil,
         transcriptPath: String?,
         source: String? = nil,
         turnID: String? = nil,
@@ -153,7 +147,6 @@ public struct CodexHookPayload: Equatable, Codable, Sendable {
         self.terminalSessionID = terminalSessionID
         self.terminalTTY = terminalTTY
         self.terminalTitle = terminalTitle
-        self.warpPaneUUID = warpPaneUUID
         self.transcriptPath = transcriptPath
         self.source = source
         self.turnID = turnID
@@ -177,7 +170,6 @@ public struct CodexHookPayload: Equatable, Codable, Sendable {
         terminalSessionID = try container.decodeIfPresent(String.self, forKey: .terminalSessionID)
         terminalTTY = try container.decodeIfPresent(String.self, forKey: .terminalTTY)
         terminalTitle = try container.decodeIfPresent(String.self, forKey: .terminalTitle)
-        warpPaneUUID = try container.decodeIfPresent(String.self, forKey: .warpPaneUUID)
         transcriptPath = try container.decodeIfPresent(String.self, forKey: .transcriptPath)
         source = try container.decodeIfPresent(String.self, forKey: .source)
         turnID = try container.decodeIfPresent(String.self, forKey: .turnID)
@@ -278,11 +270,7 @@ public extension CodexHookPayload {
             paneTitle: terminalTitle ?? "Codex \(sessionID.prefix(8))",
             workingDirectory: cwd,
             terminalSessionID: terminalSessionID,
-            terminalTTY: terminalTTY,
-            warpPaneUUID: warpPaneUUID,
-            // For Codex.app sessions, session ID is the thread ID — used
-            // for `codex://threads/<id>` deep-link jumps.
-            codexThreadID: terminalApp == "Codex.app" ? sessionID : nil
+            terminalTTY: terminalTTY
         )
     }
 
@@ -391,40 +379,19 @@ public extension CodexHookPayload {
         withRuntimeContext(
             environment: environment,
             currentTTYProvider: { currentTTY() },
-            terminalLocatorProvider: { terminalLocator(for: $0) },
-            warpPaneResolver: Self.defaultWarpPaneResolver
+            terminalLocatorProvider: { terminalLocator(for: $0) }
         )
-    }
-
-    /// Default production resolver — PID-based lookup first, cwd-based
-    /// as the fallback. Mirrors ClaudeHookPayload.defaultWarpPaneResolver;
-    /// see that file for the rationale.
-    static let defaultWarpPaneResolver: @Sendable (String) -> String? = { cwd in
-        let reader = WarpSQLiteReader()
-        if let context = WarpProcessResolver.resolveCurrentPaneContext(),
-           let uuid = reader.lookupPaneUUIDByShellPID(
-               context.shellPID,
-               terminalServerPID: context.terminalServerPID
-           ) {
-            return uuid
-        }
-        return reader.lookupPaneUUID(forCwd: cwd)
     }
 
     func withRuntimeContext(
         environment: [String: String],
         currentTTYProvider: () -> String?,
-        terminalLocatorProvider: (String) -> (sessionID: String?, tty: String?, title: String?),
-        warpPaneResolver: (String) -> String? = Self.defaultWarpPaneResolver
+        terminalLocatorProvider: (String) -> (sessionID: String?, tty: String?, title: String?)
     ) -> CodexHookPayload {
         var payload = self
 
         if payload.terminalApp == nil {
             payload.terminalApp = inferTerminalApp(from: environment)
-        }
-
-        if payload.terminalApp == "Warp", payload.warpPaneUUID == nil {
-            payload.warpPaneUUID = warpPaneResolver(payload.cwd)
         }
 
         // For cmux, use CMUX_SURFACE_ID as the terminal session identifier.
@@ -484,7 +451,7 @@ public extension CodexHookPayload {
     }
 
     private static let noLocatorTerminalApps: Set<String> = [
-        "cmux", "codex.app", "kaku", "wezterm", "zellij",
+        "cmux", "kaku", "wezterm", "zellij",
         "vs code", "vs code insiders", "cursor", "windsurf", "trae",
         "intellij idea", "webstorm", "pycharm", "goland", "clion",
         "rubymine", "phpstorm", "rider", "rustrover",
@@ -512,75 +479,55 @@ public extension CodexHookPayload {
     }
 
     private func inferTerminalApp(from environment: [String: String]) -> String? {
-        // Multiplexers run inside a host terminal but expose their own pane
-        // context. Detect them first so the captured jumpTarget points at
-        // the multiplexer pane instead of the outer terminal.
+        if environment["ITERM_SESSION_ID"] != nil || environment["LC_TERMINAL"] == "iTerm2" {
+            return "iTerm"
+        }
+
         if environment["CMUX_WORKSPACE_ID"] != nil || environment["CMUX_SOCKET_PATH"] != nil {
             return "cmux"
         }
+
+        // Zellij runs inside another terminal; detect it before the parent
+        // terminal so we can capture pane context for jump-back.
         if environment["ZELLIJ"] != nil {
             return "Zellij"
         }
 
-        // Codex desktop app — the hook binary runs as a child of Codex.app,
-        // which sets __CFBundleIdentifier to its own bundle ID.  Must be
-        // checked BEFORE TERM_PROGRAM: when Codex.app is launched from a
-        // terminal (e.g. `open -a Codex` from Ghostty), TERM_PROGRAM leaks
-        // from the parent shell env, which would incorrectly classify
-        // Codex.app's hook subprocess as the launching terminal.
-        // __CFBundleIdentifier is safe here because a real terminal session
-        // would have its own terminal's bundle ID (e.g. com.mitchellh.ghostty),
-        // not one containing both "openai" and "codex".
-        if let bundleID = environment["__CFBundleIdentifier"]?.lowercased(),
-           bundleID.contains("openai") && bundleID.contains("codex") {
-            return "Codex.app"
+        if environment["GHOSTTY_RESOURCES_DIR"] != nil {
+            return "Ghostty"
         }
 
-        // TERM_PROGRAM is the only authoritative terminal signal. Each
-        // terminal sets it explicitly when it execs the user's shell, so
-        // unlike per-app env vars (GHOSTTY_RESOURCES_DIR,
-        // WARP_IS_LOCAL_SHELL_SESSION, ITERM_SESSION_ID, ...) it cannot
-        // leak across apps via macOS GUI app environment inheritance. See
-        // ClaudeHooks.swift:inferTerminalApp for the full leak rationale.
-        if let termProgram = environment["TERM_PROGRAM"]?.lowercased(), !termProgram.isEmpty {
-            switch termProgram {
-            case "apple_terminal":
-                return "Terminal"
-            case "iterm.app", "iterm2":
-                return "iTerm"
-            case let value where value.contains("warp"):
-                return "Warp"
-            case let value where value.contains("ghostty"):
-                return "Ghostty"
-            case let value where value.contains("wezterm"):
-                return "WezTerm"
-            case "kaku":
-                return "Kaku"
-            case "vscode":
-                return "VS Code"
-            case "vscode-insiders":
-                return "VS Code Insiders"
-            case "windsurf":
-                return "Windsurf"
-            case "trae":
-                return "Trae"
-            default:
-                break
-            }
-        }
-
-        // Fallback for terminals that don't set TERM_PROGRAM. Vulnerable to
-        // GUI inheritance leaks; only consulted when TERM_PROGRAM is empty.
-        // Check Warp before Ghostty so a leaked GHOSTTY_RESOURCES_DIR cannot
-        // win over a real WARP_IS_LOCAL_SHELL_SESSION on the same shell.
-        if environment["ITERM_SESSION_ID"] != nil || environment["LC_TERMINAL"] == "iTerm2" {
-            return "iTerm"
-        }
         if environment["WARP_IS_LOCAL_SHELL_SESSION"] != nil {
             return "Warp"
         }
-        if environment["GHOSTTY_RESOURCES_DIR"] != nil {
+
+        let termProgram = environment["TERM_PROGRAM"]?.lowercased()
+        switch termProgram {
+        case .some("apple_terminal"):
+            return "Terminal"
+        case .some("iterm.app"), .some("iterm2"):
+            return "iTerm"
+        case let value? where value.contains("ghostty"):
+            // cmux also sets TERM_PROGRAM=ghostty; already handled above via
+            // CMUX_WORKSPACE_ID / CMUX_SOCKET_PATH, so reaching here means
+            // genuine Ghostty.
             return "Ghostty"
+        case let value? where value.contains("warp"):
+            return "Warp"
+        case let value? where value.contains("wezterm"):
+            return "WezTerm"
+        case .some("kaku"):
+            return "Kaku"
+        case .some("vscode"):
+            return "VS Code"
+        case .some("vscode-insiders"):
+            return "VS Code Insiders"
+        case .some("windsurf"):
+            return "Windsurf"
+        case .some("trae"):
+            return "Trae"
+        default:
+            break
         }
 
         // JetBrains IDEs set TERMINAL_EMULATOR=JetBrains-JediTerm.

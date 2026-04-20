@@ -9,6 +9,10 @@ final class OpenIslandAppDelegate: NSObject, NSApplicationDelegate {
     private lazy var harnessRuntimeMonitor = HarnessRuntimeMonitor(launchedAt: launchedAt)
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // Suppress "Cannot index window tabs" log from AppKit when running
+        // without a bundle identifier (debug builds).
+        NSWindow.allowsAutomaticWindowTabbing = false
+
         ProcessInfo.processInfo.disableAutomaticTermination(
             "Open Island should remain active while monitoring local agent sessions."
         )
@@ -106,7 +110,7 @@ struct OpenIslandApp: App {
         Window("Open Island Settings", id: "settings") {
             SettingsWindowContent(model: appDelegate.model)
         }
-        .windowResizability(.contentMinSize)
+        .windowResizability(.contentSize)
         .commands {
             CommandGroup(replacing: .appSettings) {
                 Button("Settings…") {

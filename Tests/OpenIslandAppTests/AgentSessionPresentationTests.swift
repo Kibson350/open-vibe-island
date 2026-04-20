@@ -123,8 +123,8 @@ struct AgentSessionPresentationTests {
             )
         )
 
-        // Headline uses initial prompt (session topic), prompt line uses latest
-        #expect(session.spotlightHeadlineText == "worktree · Start by fixing the island hover behavior.")
+        // Pane title is ground truth — it's what the user sees in the terminal tab
+        #expect(session.spotlightHeadlineText == "codex ~/tmp/worktree")
         #expect(session.spotlightPromptLineText == "You: Now make the overlay height fit the content.")
     }
 
@@ -146,7 +146,7 @@ struct AgentSessionPresentationTests {
             )
         )
 
-        #expect(session.spotlightHeadlineText == "worktree · Start by fixing the island hover behavior.")
+        #expect(session.spotlightHeadlineText == "Start by fixing the island hover behavior.")
         #expect(session.spotlightPromptLineText == "You: Now make the overlay height fit the content.")
     }
 
@@ -176,7 +176,8 @@ struct AgentSessionPresentationTests {
             )
         )
 
-        #expect(session.spotlightHeadlineText == "worktree · Commit the README change.")
+        // Pane title takes priority over the initial prompt
+        #expect(session.spotlightHeadlineText == "codex ~/tmp/worktree")
         #expect(session.spotlightPromptLineText == "You: Also confirm the worktree status.")
         #expect(session.notificationHeaderPromptLineText == nil)
     }

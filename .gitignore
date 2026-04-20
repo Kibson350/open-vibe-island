@@ -12,7 +12,6 @@ build/
 
 # Swift Package Manager
 .build/
-.swiftpm/
 Packages/
 Package.resolved
 
@@ -25,4 +24,3 @@ output/
 *.log
 *.tmp
 .worktrees/
-.air/
