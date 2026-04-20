@@ -6,42 +6,103 @@ import OpenIslandCore
 
 @MainActor
 struct AgentsGridRightSlotTests {
-    /// The right-slot grid must sort sessions by firstSeenAt ascending, so
-    /// its order stays stable even when panel-sort signals (e.g. updatedAt)
-    /// churn.
+    /// At bulk first observation (e.g. app launch) ties are broken by
+    /// session.firstSeenAt so historical order is preserved.
     @Test
-    func rightSlotCellsAreSortedByFirstSeenAtNotUpdatedAt() {
+    func bulkFirstObservationOrdersByHistoricalFirstSeenAt() {
         let model = AppModel()
         model.islandRightSlot = .agents
 
         let now = Date(timeIntervalSince1970: 100_000)
-        // Three Claude sessions. firstSeenAt order: A < B < C.
-        // updatedAt order (what panel typically sorts by): C > A > B.
-        // The right-slot grid should still render A, B, C regardless.
-        let sessionA = makeSession(id: "A", firstSeenAt: now,                     updatedAt: now.addingTimeInterval(60))
+        let sessionA = makeSession(id: "A", firstSeenAt: now,                       updatedAt: now.addingTimeInterval(60))
         let sessionB = makeSession(id: "B", firstSeenAt: now.addingTimeInterval(10), updatedAt: now.addingTimeInterval(5))
         let sessionC = makeSession(id: "C", firstSeenAt: now.addingTimeInterval(20), updatedAt: now.addingTimeInterval(120))
 
+        // Insertion order differs from historical order — the grid must still
+        // present A, B, C.
         model.state = SessionState(sessions: [sessionC, sessionA, sessionB])
-
-        guard case let .agents(cells)? = model.islandClosedRightSlotContent(now: now.addingTimeInterval(130)) else {
+        guard case let .agents(cells)? = model.islandClosedRightSlotContent() else {
             Issue.record("Expected .agents right-slot content")
             return
         }
         #expect(cells.count == 3)
 
-        // Nudge B's updatedAt so the panel-sort would shuffle it to the front.
+        // A panel-sort signal (updatedAt) churn must not reshuffle the grid.
         var bumped = sessionB
         bumped.updatedAt = now.addingTimeInterval(1_000)
         model.state = SessionState(sessions: [sessionC, sessionA, bumped])
-
-        guard case let .agents(cells2)? = model.islandClosedRightSlotContent(now: now.addingTimeInterval(1_100)) else {
+        guard case let .agents(cells2)? = model.islandClosedRightSlotContent() else {
             Issue.record("Expected .agents right-slot content after bump")
             return
         }
-        // Grid order must still be A, B, C (firstSeenAt ascending) even though
-        // B is now the most recently updated.
         #expect(cells == cells2)
+    }
+
+    /// The critical "user adds a new session" case: whatever the newcomer's
+    /// session.firstSeenAt value is (could be earlier than existing peers
+    /// when the session was discovered from rollout / cache), the tile must
+    /// still land at the end of the grid — because it's the newcomer in
+    /// observation-time.
+    @Test
+    func newlyObservedSessionAlwaysLandsAtTheEndRegardlessOfHistoricalTime() {
+        let model = AppModel()
+        model.islandRightSlot = .agents
+
+        let now = Date(timeIntervalSince1970: 200_000)
+        let sessionA = makeSession(id: "A", firstSeenAt: now,                       updatedAt: now)
+        let sessionB = makeSession(id: "B", firstSeenAt: now.addingTimeInterval(10), updatedAt: now.addingTimeInterval(10))
+        let sessionC = makeSession(id: "C", firstSeenAt: now.addingTimeInterval(20), updatedAt: now.addingTimeInterval(20))
+
+        model.state = SessionState(sessions: [sessionA, sessionB, sessionC])
+        _ = model.islandClosedRightSlotContent()
+
+        // Later: a fourth session is discovered, but its historical
+        // firstSeenAt pre-dates everything (e.g. found in a rollout tail).
+        let sessionD = makeSession(
+            id: "D",
+            firstSeenAt: now.addingTimeInterval(-500),
+            updatedAt: now.addingTimeInterval(40)
+        )
+        model.state = SessionState(sessions: [sessionA, sessionB, sessionC, sessionD])
+        guard case let .agents(cells)? = model.islandClosedRightSlotContent() else {
+            Issue.record("Expected .agents right-slot content")
+            return
+        }
+        #expect(cells.count == 4)
+        #expect(cells.first == Self.cellFor(sessionA))
+        #expect(cells.last == Self.cellFor(sessionD))
+    }
+
+    /// A session that leaves the surfaced set for a moment (e.g. attachment
+    /// flip, transient stale) must return to its original slot when visible
+    /// again — not re-observed as a newcomer.
+    @Test
+    func returningSessionKeepsItsOriginalSlot() {
+        let model = AppModel()
+        model.islandRightSlot = .agents
+
+        let now = Date(timeIntervalSince1970: 300_000)
+        let sessionA = makeSession(id: "A", firstSeenAt: now,                       updatedAt: now)
+        let sessionB = makeSession(id: "B", firstSeenAt: now.addingTimeInterval(10), updatedAt: now.addingTimeInterval(10))
+        let sessionC = makeSession(id: "C", firstSeenAt: now.addingTimeInterval(20), updatedAt: now.addingTimeInterval(20))
+
+        model.state = SessionState(sessions: [sessionA, sessionB, sessionC])
+        _ = model.islandClosedRightSlotContent()
+
+        // B transiently leaves the surfaced set.
+        model.state = SessionState(sessions: [sessionA, sessionC])
+        _ = model.islandClosedRightSlotContent()
+
+        // B returns. Its ticket is preserved → order is still A, B, C.
+        model.state = SessionState(sessions: [sessionA, sessionB, sessionC])
+        guard case let .agents(cells)? = model.islandClosedRightSlotContent() else {
+            Issue.record("Expected .agents right-slot content")
+            return
+        }
+        #expect(cells.count == 3)
+        #expect(cells[0] == Self.cellFor(sessionA))
+        #expect(cells[1] == Self.cellFor(sessionB))
+        #expect(cells[2] == Self.cellFor(sessionC))
     }
 
     /// Sessions beyond the 9-slot threshold collapse into a single trailing
@@ -62,7 +123,7 @@ struct AgentsGridRightSlotTests {
         }
         model.state = SessionState(sessions: sessions)
 
-        guard case let .agents(cells)? = model.islandClosedRightSlotContent(now: now.addingTimeInterval(500)) else {
+        guard case let .agents(cells)? = model.islandClosedRightSlotContent() else {
             Issue.record("Expected .agents right-slot content")
             return
         }
@@ -95,7 +156,7 @@ struct AgentsGridRightSlotTests {
 
         model.state = SessionState(sessions: [running, waitingA, completed])
 
-        guard case let .agents(cells)? = model.islandClosedRightSlotContent(now: now.addingTimeInterval(10)) else {
+        guard case let .agents(cells)? = model.islandClosedRightSlotContent() else {
             Issue.record("Expected .agents right-slot content")
             return
         }
@@ -115,6 +176,19 @@ struct AgentsGridRightSlotTests {
     }
 
     // MARK: - helpers
+
+    private static func cellFor(_ session: AgentSession) -> AgentGridCell {
+        let color = Color(hex: session.tool.brandColorHex) ?? .gray
+        let state: AgentGridCellState
+        if session.phase.requiresAttention {
+            state = .waiting
+        } else if session.phase == .running {
+            state = .running
+        } else {
+            state = .idle
+        }
+        return .session(color: color, state: state)
+    }
 
     private func makeSession(
         id: String,

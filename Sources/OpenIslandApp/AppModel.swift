@@ -45,6 +45,15 @@ final class AppModel {
         }
     }
     @ObservationIgnored private var _cachedSessionBuckets: (primary: [AgentSession], overflow: [AgentSession])?
+
+    /// Monotonic ticket assigned the first time a session ID shows up in the
+    /// closed-island's right-slot surfaced set. Drives the grid's display
+    /// order: newly-surfaced sessions always land at the end, and a session
+    /// that briefly leaves (e.g. attachment flip) keeps its old slot when it
+    /// returns. Persists for the process lifetime; session IDs are UUIDs so
+    /// accumulation over time is bounded in practice.
+    @ObservationIgnored private var _agentsGridObservedSequence: [String: Int] = [:]
+    @ObservationIgnored private var _agentsGridNextTicket: Int = 0
     var selectedSessionID: String?
     let hooks = HookInstallationCoordinator()
     let overlay = OverlayUICoordinator()
@@ -626,11 +635,20 @@ final class AppModel {
             guard n > 0 else { return nil }
             return .count(n)
         case .agents:
-            // Display order is locked to first-seen ascending so the right-
-            // slot grid stays stable regardless of how the panel list is
-            // sorted. Up to 9 sessions render one tile each; 10+ shows the
-            // first 7 by firstSeenAt plus a single "+N" overflow tile.
-            let ordered = sessions.sorted { $0.firstSeenAt < $1.firstSeenAt }
+            // Display order = order-of-first-observation-in-the-island. A
+            // session that later flips visibility (e.g. attachment churn,
+            // completed↔running) keeps its existing slot instead of being
+            // reshuffled by session.firstSeenAt, which tracks the historical
+            // event time and can be older than visible peers. Bulk-observing
+            // N sessions at once (e.g. at app launch) breaks the tie by
+            // session.firstSeenAt so historical order is preserved.
+            stampAgentsGridObservationTickets(for: sessions)
+            let ordered = sessions.sorted { a, b in
+                let ta = _agentsGridObservedSequence[a.id] ?? .max
+                let tb = _agentsGridObservedSequence[b.id] ?? .max
+                if ta != tb { return ta < tb }
+                return a.id < b.id
+            }
             var cells: [AgentGridCell] = []
             if ordered.count <= 9 {
                 cells = ordered.map(Self.agentsGridCell(for:))
@@ -639,6 +657,19 @@ final class AppModel {
                 cells.append(.overflow(ordered.count - 7))
             }
             return cells.isEmpty ? nil : .agents(cells)
+        }
+    }
+
+    private func stampAgentsGridObservationTickets(for sessions: [AgentSession]) {
+        let newcomers = sessions.filter { _agentsGridObservedSequence[$0.id] == nil }
+        guard !newcomers.isEmpty else { return }
+        let orderedNewcomers = newcomers.sorted { a, b in
+            if a.firstSeenAt != b.firstSeenAt { return a.firstSeenAt < b.firstSeenAt }
+            return a.id < b.id
+        }
+        for session in orderedNewcomers {
+            _agentsGridObservedSequence[session.id] = _agentsGridNextTicket
+            _agentsGridNextTicket += 1
         }
     }
 
