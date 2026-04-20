@@ -21,6 +21,8 @@ struct V6RightSlotView: View {
         case .count(let n):
             Text("×\(n)")
                 .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                .lineLimit(1)
+                .fixedSize(horizontal: true, vertical: false)
                 .foregroundStyle(V6Palette.paper)
                 .padding(.horizontal, 7)
                 .padding(.vertical, 2)
@@ -38,24 +40,31 @@ struct V6RightSlotView: View {
                         .frame(width: 7, height: 7)
                 }
             }
+            .fixedSize()
         case .time(let text):
             Text(text)
                 .font(.system(size: 10.5, weight: .medium, design: .monospaced))
+                .lineLimit(1)
+                .fixedSize(horizontal: true, vertical: false)
                 .foregroundStyle(V6Palette.paper.opacity(0.75))
         }
     }
 
-    /// Intrinsic width used by the fluid-layout math. Matches the padding
-    /// budget inside each variant above.
+    /// Intrinsic width used by the fluid-layout math. Values are slightly
+    /// padded beyond the raw text measurement so the pill always reserves
+    /// enough room for the `.fixedSize()` content to render on one line,
+    /// without HStack compression forcing a wrap.
     static func intrinsicWidth(of content: IslandRightSlotContent) -> CGFloat {
         switch content {
         case .count(let n):
-            let digits = max(1, String(n).count)
-            return CGFloat(22 + (digits - 1) * 7) // "×" + digits padding
+            let digits = Double(max(1, String(n).count))
+            // "×" + digits at 11pt mono ≈ 7.2pt/char + 14pt padding + 2pt stroke.
+            return CGFloat(30.0 + max(0.0, digits - 1.0) * 7.2)
         case .agents(let colors):
-            return CGFloat(colors.count * 7 + max(0, colors.count - 1) * 4)
+            let count = Double(colors.count)
+            return CGFloat(count * 7.0 + max(0.0, count - 1.0) * 4.0)
         case .time(let s):
-            return CGFloat(s.count) * 6.5 + 4
+            return CGFloat(Double(s.count) * 6.8 + 6.0)
         }
     }
 }
@@ -68,13 +77,13 @@ struct V6CenterLabelView: View {
     var body: some View {
         Text(text)
             .font(.system(size: 11.5, weight: .medium, design: .monospaced))
-            .foregroundStyle(V6Palette.paper)
             .lineLimit(1)
-            .truncationMode(.tail)
+            .fixedSize(horizontal: true, vertical: false)
+            .foregroundStyle(V6Palette.paper)
     }
 
     static func intrinsicWidth(of text: String) -> CGFloat {
-        CGFloat(text.count) * 6.8 + 10
+        CGFloat(Double(text.count) * 7.3 + 10)
     }
 }
 
@@ -104,27 +113,34 @@ struct V6ClosedPill: View {
         }
     }
 
+    // Horizontal edge padding is identical left/right — canonical v6 pill
+    // has r = h/2 semicircular bottoms, so edge inset = r keeps content
+    // clear of the curve.
+    private var pad: CGFloat { height / 2 }
+
+    // Minimum breathing room between the center label (or glyph, when no
+    // label) and the right-slot content so they never touch at small widths.
+    private static let innerGap: CGFloat = 10
+
     // MARK: External (fluid)
 
     private var externalBody: some View {
-        let padL: CGFloat = height / 2
-        let padR: CGFloat = height / 2
         let glyphW: CGFloat = 24
         let labelW = label.map { V6CenterLabelView.intrinsicWidth(of: $0) } ?? 0
         let rightW = rightSlot.map { V6RightSlotView.intrinsicWidth(of: $0) } ?? 0
-        let rightFullW = rightSlot == nil ? 0 : rightW + 14
 
-        let intrinsic = padL + glyphW + (label == nil ? 0 : labelW + 6) + rightFullW + padR
+        let labelBlock = (label == nil ? 0 : 6 + labelW)
+        let rightBlock = (rightSlot == nil ? 0 : Self.innerGap + rightW)
+        let intrinsic = pad * 2 + glyphW + labelBlock + rightBlock
         let width = max(minWidth, intrinsic)
 
-        return ZStack(alignment: .leading) {
+        return ZStack {
             V6ClosedPillShape()
                 .fill(V6Palette.ink)
 
             HStack(spacing: 0) {
                 UnifiedBars(mode: mode, size: 24)
                     .frame(width: glyphW, height: 24)
-                    .padding(.leading, padL)
 
                 if let label {
                     V6CenterLabelView(text: label)
@@ -132,15 +148,14 @@ struct V6ClosedPill: View {
                         .transition(.opacity.combined(with: .move(edge: .leading)))
                 }
 
-                Spacer(minLength: 0)
+                Spacer(minLength: Self.innerGap)
 
                 if let rightSlot {
                     V6RightSlotView(content: rightSlot)
-                        .padding(.trailing, padR)
                         .transition(.opacity.combined(with: .move(edge: .trailing)))
                 }
             }
-            .frame(width: width, height: height)
+            .padding(.horizontal, pad)
         }
         .frame(width: width, height: height)
         .animation(
@@ -156,27 +171,24 @@ struct V6ClosedPill: View {
     // MARK: MacBook (outer width locked)
 
     private var macbookBody: some View {
-        let padL: CGFloat = height / 2
-        let padR: CGFloat = height / 2
         let halfReserve: CGFloat = 44
         let outer = halfReserve + physicalNotchWidth + halfReserve
 
-        return ZStack(alignment: .leading) {
+        return ZStack {
             V6ClosedPillShape()
                 .fill(V6Palette.ink)
-                .frame(width: outer, height: height)
 
-            // Left half: glyph, pinned to pill's left edge.
-            UnifiedBars(mode: mode, size: 24)
-                .frame(width: 24, height: 24)
-                .padding(.leading, padL)
+            HStack(spacing: 0) {
+                UnifiedBars(mode: mode, size: 24)
+                    .frame(width: 24, height: 24)
 
-            // Right half: right-slot, pinned to pill's right edge.
-            if let rightSlot {
-                HStack { Spacer(minLength: 0); V6RightSlotView(content: rightSlot) }
-                    .frame(width: outer, alignment: .trailing)
-                    .padding(.trailing, padR)
+                Spacer(minLength: 0)
+
+                if let rightSlot {
+                    V6RightSlotView(content: rightSlot)
+                }
             }
+            .padding(.horizontal, pad)
         }
         .frame(width: outer, height: height)
     }
