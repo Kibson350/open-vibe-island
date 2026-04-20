@@ -616,7 +616,7 @@ final class AppModel {
     /// Right-slot payload derived from the user's `islandRightSlot`
     /// preference and current live state. Returns nil when the preference
     /// is `.none` or there's nothing meaningful to show.
-    func islandClosedRightSlotContent(now: Date = .now) -> IslandRightSlotContent? {
+    func islandClosedRightSlotContent() -> IslandRightSlotContent? {
         let sessions = surfacedSessions
         switch islandRightSlot {
         case .none:
@@ -638,25 +638,7 @@ final class AppModel {
                 if colors.count == 5 { break }
             }
             return colors.isEmpty ? nil : .agents(colors)
-        case .time:
-            guard let session = islandClosedSpotlight else { return nil }
-            let elapsed = now.timeIntervalSince(session.updatedAt)
-            guard elapsed >= 0 else { return nil }
-            return .time(Self.formatTimeLeft(elapsed))
         }
-    }
-
-    private static func formatTimeLeft(_ seconds: TimeInterval) -> String {
-        let s = Int(seconds.rounded())
-        if s < 60 { return "\(s)s" }
-        let m = s / 60
-        if m < 60 {
-            let rem = s % 60
-            return rem == 0 ? "\(m)m" : "\(m)m \(rem)s"
-        }
-        let h = m / 60
-        let remM = m % 60
-        return remM == 0 ? "\(h)h" : "\(h)h \(remM)m"
     }
 
     var shouldShowSessionBootstrapPlaceholder: Bool {

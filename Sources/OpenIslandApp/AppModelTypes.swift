@@ -27,7 +27,6 @@ enum TrackedEventIngress {
 enum IslandRightSlot: String, CaseIterable, Identifiable, Sendable {
     case count   // "×N" badge
     case agents  // colored dot stack, one per active agent tool
-    case time    // mono countdown for the waiting session
     case none    // pill collapses — useful if you just want the bars
 
     var id: String { rawValue }

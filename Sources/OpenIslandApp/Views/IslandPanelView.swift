@@ -211,25 +211,24 @@ struct IslandPanelView: View {
 
     /// Closed island per v6 spec. Renders the flat-top pill with the
     /// UnifiedBars glyph, respecting the user's right-slot / center-label
-    /// preferences. Refreshes every 0.5s so time-left right-slot stays
-    /// live without forcing a redraw on every bar-animation tick.
+    /// preferences. AppModel is @Observable so any change to sessions /
+    /// preferences re-renders this automatically; UnifiedBars runs its own
+    /// TimelineView internally for bar animation.
     @ViewBuilder
     private func v6ClosedSurface() -> some View {
-        TimelineView(.periodic(from: .now, by: 0.5)) { context in
-            let layout: V6ClosedLayout = isExternalDisplayPlacement ? .external : .macbook
-            let physicalNotchWidth: CGFloat = targetOverlayScreen?.notchSize.width ?? 180
-            V6ClosedPill(
-                mode: model.islandClosedMode,
-                label: layout == .external ? model.islandClosedLabel() : nil,
-                rightSlot: model.islandClosedRightSlotContent(now: context.date),
-                layout: layout,
-                height: closedNotchHeight,
-                physicalNotchWidth: layout == .macbook ? physicalNotchWidth : 0,
-                minWidth: 70
-            )
-            .scaleEffect(isPopping ? 1.04 : 1, anchor: .top)
-            .animation(popAnimation, value: isPopping)
-        }
+        let layout: V6ClosedLayout = isExternalDisplayPlacement ? .external : .macbook
+        let physicalNotchWidth: CGFloat = targetOverlayScreen?.notchSize.width ?? 180
+        V6ClosedPill(
+            mode: model.islandClosedMode,
+            label: layout == .external ? model.islandClosedLabel() : nil,
+            rightSlot: model.islandClosedRightSlotContent(),
+            layout: layout,
+            height: closedNotchHeight,
+            physicalNotchWidth: layout == .macbook ? physicalNotchWidth : 0,
+            minWidth: 70
+        )
+        .scaleEffect(isPopping ? 1.04 : 1, anchor: .top)
+        .animation(popAnimation, value: isPopping)
     }
 
     // MARK: - Opened surface

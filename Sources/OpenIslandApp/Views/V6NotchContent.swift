@@ -8,7 +8,6 @@ import OpenIslandCore
 enum IslandRightSlotContent: Equatable {
     case count(Int)          // "×N" badge
     case agents([Color])     // one dot per active agent (ordered)
-    case time(String)        // mono time-left string
 }
 
 // MARK: - Right-slot renderers
@@ -41,12 +40,6 @@ struct V6RightSlotView: View {
                 }
             }
             .fixedSize()
-        case .time(let text):
-            Text(text)
-                .font(.system(size: 10.5, weight: .medium, design: .monospaced))
-                .lineLimit(1)
-                .fixedSize(horizontal: true, vertical: false)
-                .foregroundStyle(V6Palette.paper.opacity(0.75))
         }
     }
 
@@ -63,8 +56,6 @@ struct V6RightSlotView: View {
         case .agents(let colors):
             let count = Double(colors.count)
             return CGFloat(count * 7.0 + max(0.0, count - 1.0) * 4.0)
-        case .time(let s):
-            return CGFloat(Double(s.count) * 6.8 + 6.0)
         }
     }
 }
@@ -202,13 +193,11 @@ enum V6ClosedLayout: Equatable {
 private enum RightSlotKey: Hashable {
     case count(Int)
     case agents(Int)
-    case time(String)
 
     init(_ content: IslandRightSlotContent) {
         switch content {
         case .count(let n):    self = .count(n)
         case .agents(let cs):  self = .agents(cs.count)
-        case .time(let t):     self = .time(t)
         }
     }
 }

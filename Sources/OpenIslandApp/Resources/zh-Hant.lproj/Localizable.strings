@@ -59,7 +59,6 @@
 "settings.appearance.rightSlot.note" = "收起狀態下 notch 右側顯示的內容。";
 "settings.appearance.rightSlot.count" = "會話數";
 "settings.appearance.rightSlot.agents" = "Agents";
-"settings.appearance.rightSlot.time" = "剩餘時間";
 "settings.appearance.rightSlot.none" = "不顯示";
 "settings.appearance.centerLabel.title" = "02 · 中央標籤";
 "settings.appearance.centerLabel.note" = "僅外接螢幕顯示 — MacBook 的物理凹槽會遮擋中央區域。";

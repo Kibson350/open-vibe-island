@@ -59,7 +59,6 @@
 "settings.appearance.rightSlot.note" = "收起状态下 notch 右侧显示的内容。";
 "settings.appearance.rightSlot.count" = "会话数";
 "settings.appearance.rightSlot.agents" = "Agents";
-"settings.appearance.rightSlot.time" = "剩余时长";
 "settings.appearance.rightSlot.none" = "不显示";
 "settings.appearance.centerLabel.title" = "02 · 中央标签";
 "settings.appearance.centerLabel.note" = "仅外接屏显示 — MacBook 的物理刘海会遮挡中央区域。";

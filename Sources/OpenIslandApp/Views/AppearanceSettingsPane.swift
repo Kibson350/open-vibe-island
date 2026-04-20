@@ -168,8 +168,6 @@ struct AppearanceSettingsPane: View {
                           title: lang.t("settings.appearance.rightSlot.count"))
             rightSlotCard(.agents, icon: { AgentDotsPreview(colors: previewAgentColors) },
                           title: lang.t("settings.appearance.rightSlot.agents"))
-            rightSlotCard(.time,   icon: { TimeLeftPreview(text: "2m") },
-                          title: lang.t("settings.appearance.rightSlot.time"))
             rightSlotCard(.none,   icon: { Text("—")
                                       .font(.system(size: 14, weight: .semibold, design: .monospaced))
                                       .foregroundStyle(V6Palette.paper.opacity(0.5)) },
@@ -342,8 +340,6 @@ struct AppearanceSettingsPane: View {
         case .count: return .count(3)
         case .agents:
             return .agents(previewAgentColors)
-        case .time:
-            return previewMode == .waiting ? .time("2m") : .time("1m 24s")
         }
     }
 }
@@ -378,11 +374,3 @@ private struct AgentDotsPreview: View {
     }
 }
 
-private struct TimeLeftPreview: View {
-    let text: String
-    var body: some View {
-        Text(text)
-            .font(.system(size: 11.5, weight: .medium, design: .monospaced))
-            .foregroundStyle(V6Palette.paper.opacity(0.75))
-    }
-}
