@@ -22,6 +22,11 @@ This index is the repository map for humans and coding agents. Read these files 
 ## Harness And Planning
 
 - [docs/exec-plans/README.md](./exec-plans/README.md) for the active and completed execution-plan convention
+- [docs/exec-plans/completed/2026-04-10-warp-precision-jump-design.md](./exec-plans/completed/2026-04-10-warp-precision-jump-design.md) for the Warp precision jump implementation design
+- [docs/exec-plans/completed/2026-04-10-warp-precision-jump-plan.md](./exec-plans/completed/2026-04-10-warp-precision-jump-plan.md) for the Warp precision jump execution plan
+- [docs/superpowers/plans/2026-04-18-opencode-stability.md](./superpowers/plans/2026-04-18-opencode-stability.md) for the OpenCode stability improvement plan
+- [docs/watch-notification-design.md](./watch-notification-design.md) for the watchOS notification design
+- [docs/watch-notification-impl-plan.md](./watch-notification-impl-plan.md) for the watchOS notification implementation plan
 - [docs/references/README.md](./references/README.md) for pinned reference material and external behavior baselines
 
 ## Runtime And Product Notes
