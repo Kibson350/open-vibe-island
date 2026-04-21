@@ -10,6 +10,8 @@ on:
 jobs:
   update-contributors:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
 
@@ -17,7 +19,7 @@ jobs:
         run: |
           TIMESTAMP=$(date +%s)
           for file in README.md README.zh-CN.md; do
-            sed -i "s|contrib.rocks/image?repo=Octane0411/open-vibe-island&t=[0-9]*|contrib.rocks/image?repo=Octane0411/open-vibe-island\&t=${TIMESTAMP}|g" "$file"
+            sed -i "s|contrib.rocks/image?repo=Kibson350/open-vibe-island&t=[0-9]*|contrib.rocks/image?repo=Kibson350/open-vibe-island\&t=${TIMESTAMP}|g" "$file"
           done
 
       - name: Check for changes
