@@ -13,14 +13,13 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/Octane0411/open-vibe-island/releases/latest"><img src="https://img.shields.io/github/v/release/Octane0411/open-vibe-island?style=flat-square&label=release&color=blue" alt="Latest Release"></a>
-  <a href="https://github.com/Octane0411/open-vibe-island/stargazers"><img src="https://img.shields.io/github/stars/Octane0411/open-vibe-island?style=flat-square&color=yellow" alt="Stars"></a>
-  <a href="https://discord.gg/4ackNAutyY"><img src="https://img.shields.io/discord/1490752192368476253?style=flat-square&logo=discord&label=discord&color=5865F2" alt="Discord"></a>
+  <a href="https://github.com/Kibson350/open-vibe-island/releases/latest"><img src="https://img.shields.io/github/v/release/Kibson350/open-vibe-island?style=flat-square&label=release&color=blue" alt="Latest Release"></a>
+  <a href="https://github.com/Kibson350/open-vibe-island/stargazers"><img src="https://img.shields.io/github/stars/Kibson350/open-vibe-island?style=flat-square&color=yellow" alt="Stars"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-GPL%20v3-green?style=flat-square" alt="License: GPL v3"></a>
 </p>
 
 <p align="center">
-  <a href="https://github.com/Octane0411/open-vibe-island/releases">Download</a> ·
+  <a href="https://github.com/Kibson350/open-vibe-island/releases">Download</a> ·
   <a href="#quick-start">Quick Start</a> ·
   <a href="docs/roadmap.md">Roadmap</a> ·
   <a href="CONTRIBUTING.md">Contributing</a>
@@ -50,9 +49,9 @@ Think of it as an open-source [Vibe Island](https://vibeisland.app/) — **free,
 
 ## Supported Agents & Terminals
 
-**8 agents**: Claude Code, Codex, Cursor, OpenCode, Qoder, Qwen Code, Factory, CodeBuddy
+**9 agents**: Claude Code, Codex, Cursor, OpenCode, Qoder, Qwen Code, Factory, CodeBuddy, Kimi CLI
 
-**15+ terminals & IDEs**: Terminal.app, Ghostty, iTerm2, WezTerm, Zellij, tmux, cmux, Kaku, VS Code, Cursor, Windsurf, Trae, JetBrains IDEs (IDEA, WebStorm, PyCharm, GoLand, CLion, RubyMine, PhpStorm, Rider, RustRover)
+**15+ terminals & IDEs**: Terminal.app, Ghostty, iTerm2, WezTerm, Zellij, tmux, cmux, Kaku, Warp, VS Code, Cursor, Windsurf, Trae, JetBrains IDEs (IDEA, WebStorm, PyCharm, GoLand, CLion, RubyMine, PhpStorm, Rider, RustRover)
 
 <details>
 <summary>Full compatibility table</summary>
@@ -69,6 +68,7 @@ Think of it as an open-source [Vibe Island](https://vibeisland.app/) — **free,
 | **Factory** | Supported | Claude Code fork — same hook format, config at `~/.factory/settings.json` |
 | **CodeBuddy** | Supported | Claude Code fork — same hook format, config at `~/.codebuddy/settings.json` |
 | **Cursor** | Supported | Hook integration via `~/.cursor/hooks.json`, session tracking, workspace jump-back |
+| **Kimi CLI** | Supported | Hook integration, session tracking |
 | **Gemini CLI** | Planned | — |
 
 ### Terminals & IDEs
@@ -88,13 +88,17 @@ Think of it as an open-source [Vibe Island](https://vibeisland.app/) — **free,
 | **Windsurf** | Workspace | Activate workspace via `windsurf` CLI |
 | **Trae** | Workspace | Activate workspace via `trae` CLI |
 | **JetBrains IDEs** | Workspace | IDEA, WebStorm, PyCharm, GoLand, CLion, RubyMine, PhpStorm, Rider, RustRover |
-| **Warp** | Planned | Fallback detection only |
+| **Warp** | Full | Jump-back with pane identification |
 
 ### Other Features
 
 | Feature | Description |
 |---|---|
 | Notch / top-bar overlay | Notch area on notch Macs, top-center bar on others |
+| Dynamic closed notch | Width expands based on live session count and attention state |
+| Model badge | Orange Opus/Sonnet/Haiku version badge for Claude Code sessions |
+| Headline priority | Session title prefers terminal pane title → prompt → workspace name |
+| Haptic feedback | Alignment haptic fires when island opens on hover |
 | Control center | Hook status, usage dashboard |
 | Notification mode | Auto-height panel for permission requests and session events |
 | Notification sounds | Configurable system sounds, mute toggle |
@@ -109,12 +113,12 @@ Think of it as an open-source [Vibe Island](https://vibeisland.app/) — **free,
 
 ### Option 1: Download
 
-Grab the latest DMG from [GitHub Releases](https://github.com/Octane0411/open-vibe-island/releases) — signed and notarized, ready to run.
+Grab the latest DMG from [GitHub Releases](https://github.com/Kibson350/open-vibe-island/releases) — signed and notarized, ready to run.
 
 ### Option 2: Build from source
 
 ```bash
-git clone https://github.com/Octane0411/open-vibe-island.git
+git clone https://github.com/Kibson350/open-vibe-island.git
 cd open-vibe-island
 open Package.swift   # Opens in Xcode — hit Run
 ```
@@ -188,10 +192,11 @@ Developers who already live in the terminal and want a better way to work with c
 - **Factory** — Claude Code fork. Same hook format and events via `~/.factory/settings.json`. Use `--source factory` with the hooks binary.
 - **CodeBuddy** — Claude Code fork. Same hook format and events via `~/.codebuddy/settings.json`. Use `--source codebuddy` with the hooks binary.
 - **Cursor** — Hook-based integration via `~/.cursor/hooks.json`. Receives `beforeSubmitPrompt`, `beforeShellExecution`, `beforeMCPExecution`, `beforeReadFile`, `afterFileEdit`, and `stop` events. Session persistence across app launches. Workspace jump-back via `cursor -r`. Use `--source cursor` with the hooks binary.
+- **Kimi CLI** — Hook-based integration. Same hook format as the Claude Code family. Use `--source kimi` with the hooks binary.
 
 ### Terminal Support
 
-- **Terminal.app**, **Ghostty**, **cmux**, **Kaku**, **WezTerm**, **iTerm2**, and **Zellij** — Full jump-back support with session attachment matching (cmux via Unix socket API, Kaku/WezTerm/Zellij via CLI pane targeting, iTerm2 via AppleScript session/TTY probe)
+- **Terminal.app**, **Ghostty**, **cmux**, **Kaku**, **WezTerm**, **iTerm2**, **Zellij**, and **Warp** — Full jump-back support with session attachment matching (cmux via Unix socket API, Kaku/WezTerm/Zellij via CLI pane targeting, iTerm2 via AppleScript session/TTY probe, Warp via pane identification)
 - **VS Code**, **VS Code Insiders**, **Cursor**, **Windsurf**, **Trae** — Workspace-level jump via respective CLI (`code -r`, `cursor -r`, etc.)
 - **JetBrains IDEs** (IntelliJ IDEA, WebStorm, PyCharm, GoLand, CLion, RubyMine, PhpStorm, Rider, RustRover) — Workspace-level jump via IDE CLI launcher
 - **Warp** — Fallback detection and basic process discovery
@@ -199,6 +204,9 @@ Developers who already live in the terminal and want a better way to work with c
 ### UI & Display
 
 - **Notch overlay** — On Macs with a built-in notch, the island sits in the notch area; on external displays or non-notch Macs, it falls back to a compact top-center bar
+- **Dynamic closed notch** — Width adapts to live session count; expands further when a session needs attention
+- **Model badge** — Orange badge shows the active Claude model (e.g. "Sonnet 4.6", "Opus 4.6") for Claude Code family sessions
+- **Haptic feedback** — Alignment haptic fires when the island opens on hover
 - **Control center** — Codex/Claude hook status, usage dashboard, debug scenarios
 - **Settings** — General, Display, Sound, Shortcuts, Lab (advanced), About
 - **Notification mode** — Auto-height notification panel for permission requests and session events
